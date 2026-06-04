@@ -1,20 +1,33 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# SIU Demo
 
-# Run and deploy your AI Studio app
+这是 SIU 当前的前端和 Cloudflare Pages Functions 服务目录。
 
-This contains everything you need to run your app locally.
+主项目说明见根目录：
 
-View your app in AI Studio: https://ai.studio/apps/2977959f-c958-4813-8ea0-0de44f1d2ce0
+```text
+../README.md
+```
 
-## Run Locally
+本目录包含：
 
-**Prerequisites:**  Node.js
+- React/Vite 前端。
+- Cloudflare Pages Functions API。
+- 可迁移后端核心逻辑。
+- Supabase 初始化 SQL。
 
+## 本地运行
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```powershell
+npm install
+npm run build
+npx wrangler pages dev dist --ip 127.0.0.1 --port 8788
+```
+
+## 部署
+
+详见：
+
+```text
+CLOUDFLARE_PAGES_DEPLOY.md
+```
+
