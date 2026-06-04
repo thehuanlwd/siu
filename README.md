@@ -58,10 +58,8 @@ demo/
 重要文档：
 
 - `AGENTS.md`：AI 编码助手项目规则。
-- `SIU_Pages_Functions_开发计划.md`：Pages Functions 迁移计划。
 - `demo/CLOUDFLARE_PAGES_DEPLOY.md`：Cloudflare Pages 部署说明。
 - `demo/supabase/schema.sql`：Supabase 初始化 SQL。
-- `GITHUB_ABOUT.md`：GitHub 仓库简介和 topics 建议。
 
 ## 本地开发
 
