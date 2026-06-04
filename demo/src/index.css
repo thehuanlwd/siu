@@ -1,0 +1,191 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* 基础背景色 */
+  --bg-paper-light: #FAF9F6;
+  --bg-paper-aside: #F5F4F0;
+  --bg-paper-card: #F1EFEC;
+  --bg-paper-alert: #FFFEEF;
+  
+  /* 主要前景色与文字色 */
+  --text-charcoal: #1A1A1A;
+  --text-charcoal-rgb: 26, 26, 26; /* 用于 canvas opacity */
+  
+  /* 强调色与边框色 */
+  --accent-color: #4f46e5;
+  --accent-color-rgb: 79, 70, 229; /* 用于 canvas opacity */
+  --border-color: rgba(26, 26, 26, 0.1);
+  --border-color-light: rgba(26, 26, 26, 0.05);
+
+  /* 主体卡片/容器背景 */
+  --bg-paper-block: #FFFFFF;
+
+  /* 页脚背景与文字 */
+  --bg-footer: #1A1A1A;
+  --text-footer: #FAF9F6;
+
+  /* 主要行动按钮背景与文字 */
+  --bg-btn-primary: #1A1A1A;
+  --text-btn-primary: #FAF9F6;
+
+  /* 搜索栏扩展：横线与阴影 */
+  --border-search-line: #1A1A1A;
+  --search-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  /* 状态颜色 (去绿化：成功用琥珀金) */
+  --color-status-success-text: #854d0e;
+  --color-status-success-bg: #fefce8;
+  --color-status-success-border: rgba(234, 179, 8, 0.2);
+
+  --color-status-warning-text: #b45309;
+  --color-status-warning-bg: #fef3c7;
+  --color-status-warning-border: rgba(245, 158, 11, 0.2);
+
+  --color-status-info-text: #0369a1;
+  --color-status-info-bg: #f0f9ff;
+  --color-status-info-border: rgba(14, 165, 233, 0.2);
+
+  --color-status-error-text: #991b1b;
+  --color-status-error-bg: #fef2f2;
+  --color-status-error-border: rgba(239, 68, 68, 0.2);
+
+  --color-status-neutral-text: #334155;
+  --color-status-neutral-bg: #f8fafc;
+  --color-status-neutral-border: rgba(148, 163, 184, 0.2);
+}
+
+[data-theme='dark'] {
+  /* 基础背景色：有层次的深色 */
+  --bg-paper-light: #0D0D0C;   /* 极深炭黑底色 */
+  --bg-paper-aside: #141413;   /* 辅助背景色 */
+  --bg-paper-card: #1A1A19;    /* 卡片背景色 */
+  --bg-paper-alert: #2A2415;   /* 警告色 */
+  
+  /* 主要前景色与文字色：古董象牙白 */
+  --text-charcoal: #EAE6DF;
+  --text-charcoal-rgb: 234, 230, 223;
+  
+  /* 强调色与边框色：奢华暗金 */
+  --accent-color: #D4B26F;
+  --accent-color-rgb: 212, 178, 111;
+  --border-color: rgba(212, 178, 111, 0.15);
+  --border-color-light: rgba(212, 178, 111, 0.08);
+
+  /* 主体卡片/搜索栏背景：稍微亮一点，多用有层次的深色，避免纯黑 */
+  --bg-paper-block: #242321;
+
+  /* 页脚背景与文字 */
+  --bg-footer: #060605;
+  --text-footer: #A98C5A;      /* 暗金页脚字 */
+
+  /* 主要行动按钮背景与文字：和白色主题一样，使用纯黑 */
+  --bg-btn-primary: #000000;
+  --text-btn-primary: #FFFFFF;
+
+  /* 搜索栏扩展：横线与阴影 */
+  --border-search-line: #D4B26F; /* 横线改为暗金 */
+  --search-shadow: 0 20px 40px rgba(0, 0, 0, 0.95), 0 10px 20px rgba(0, 0, 0, 0.7); /* 极黑阴影，确保暗色下可见 */
+
+  /* 状态颜色 (去绿化：成功用柔金色) */
+  --color-status-success-text: #E5C158;
+  --color-status-success-bg: rgba(229, 193, 88, 0.1);
+  --color-status-success-border: rgba(229, 193, 88, 0.2);
+
+  --color-status-warning-text: #F39C12;
+  --color-status-warning-bg: rgba(243, 156, 18, 0.1);
+  --color-status-warning-border: rgba(243, 156, 18, 0.2);
+
+  --color-status-info-text: #38BDF8;
+  --color-status-info-bg: rgba(14, 165, 233, 0.1);
+  --color-status-info-border: rgba(56, 189, 248, 0.2);
+
+  --color-status-error-text: #F87171;
+  --color-status-error-bg: rgba(239, 68, 68, 0.1);
+  --color-status-error-border: rgba(248, 113, 113, 0.2);
+
+  --color-status-neutral-text: #BDC3C7;
+  --color-status-neutral-bg: rgba(189, 195, 199, 0.1);
+  --color-status-neutral-border: rgba(189, 195, 199, 0.2);
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-paper-light: var(--bg-paper-light);
+  --color-paper-aside: var(--bg-paper-aside);
+  --color-paper-card: var(--bg-paper-card);
+  --color-paper-alert: var(--bg-paper-alert);
+  --color-charcoal: var(--text-charcoal);
+  --color-accent-indigo: var(--accent-color);
+  --color-ui-border: var(--border-color);
+  --color-ui-border-light: var(--border-color-light);
+
+  --color-paper-block: var(--bg-paper-block);
+  --color-footer-bg: var(--bg-footer);
+  --color-footer-text: var(--text-footer);
+  --color-btn-primary: var(--bg-btn-primary);
+  --color-btn-primary-text: var(--text-btn-primary);
+
+  /* 新增搜索栏扩展绑定 */
+  --color-search-line: var(--border-search-line);
+  --shadow-search: var(--search-shadow);
+
+  /* 状态颜色 */
+  --color-status-success-text: var(--color-status-success-text);
+  --color-status-success-bg: var(--color-status-success-bg);
+  --color-status-success-border: var(--color-status-success-border);
+
+  --color-status-warning-text: var(--color-status-warning-text);
+  --color-status-warning-bg: var(--color-status-warning-bg);
+  --color-status-warning-border: var(--color-status-warning-border);
+
+  --color-status-info-text: var(--color-status-info-text);
+  --color-status-info-bg: var(--color-status-info-bg);
+  --color-status-info-border: var(--color-status-info-border);
+
+  --color-status-error-text: var(--color-status-error-text);
+  --color-status-error-bg: var(--color-status-error-bg);
+  --color-status-error-border: var(--color-status-error-border);
+
+  --color-status-neutral-text: var(--color-status-neutral-text);
+  --color-status-neutral-bg: var(--color-status-neutral-bg);
+  --color-status-neutral-border: var(--color-status-neutral-border);
+}
+
+body {
+  background-color: var(--bg-paper-light);
+  color: var(--text-charcoal);
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+@keyframes scan {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.scan-line {
+  animation: scan 2.5s linear infinite;
+}
