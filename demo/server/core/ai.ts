@@ -1,4 +1,5 @@
 import { buildSystemPrompt, buildUserPrompt } from "./prompt";
+import { normalizeUpgradePreferences } from "./preferences";
 import type { AnalyzeRequestBody, CleanedReleaseNotes, GitHubRelease, RepoProfile, RuntimeEnv, UpgradeAnalysis } from "./types";
 
 export interface AiConfig {
@@ -53,6 +54,7 @@ function chatPayload(input: {
           releases: input.releases,
           cleanedReleases: input.cleanedReleases,
           repoProfile: input.repoProfile,
+          preferences: input.request.preferences,
           lang,
         }),
       },
@@ -207,6 +209,7 @@ export function normalizeAnalysis(
     breakingChanges: Array.isArray(analysis.breakingChanges) ? analysis.breakingChanges : [],
     criticalFixes: Array.isArray(analysis.criticalFixes) ? analysis.criticalFixes : [],
     newFeatures: Array.isArray(analysis.newFeatures) ? analysis.newFeatures : [],
+    preferences: normalizeUpgradePreferences(analysis.preferences || input.request.preferences),
     versionCount: Number.isFinite(analysis.versionCount) ? Number(analysis.versionCount) : input.releases.length,
     releaseBreakdown: Array.isArray(analysis.releaseBreakdown) ? analysis.releaseBreakdown : [],
   };

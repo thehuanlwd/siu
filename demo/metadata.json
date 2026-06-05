@@ -1,8 +1,0 @@
-{
-  "name": "SIU - Should I Upgrade?",
-  "description": "One-click intelligent analysis comparing your current software version with GitHub's latest release, utilizing AI to aggregate release notes and answer the ultimate question: Should I Upgrade?",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

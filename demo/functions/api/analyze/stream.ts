@@ -12,6 +12,10 @@ interface PagesContext {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+function isReasoningModel(model: string): boolean {
+  return /(reasoning|deepseek-r1|(^|[-_])r1($|[-_])|(^|[-_])o[134]($|[-_])|gpt-5)/i.test(model);
+}
+
 export const onRequestOptions = () => optionsResponse();
 
 export const onRequestPost = async (context: PagesContext) => {
@@ -27,7 +31,8 @@ export const onRequestPost = async (context: PagesContext) => {
 
         send({
           type: "status",
-          message: lang === "zh" ? "正在读取 GitHub Releases" : "Reading GitHub Releases",
+          stage: "reading",
+          message: lang === "zh" ? "正在读取 GitHub Releases..." : "Reading GitHub Releases...",
         });
 
         const prepared = await prepareAnalysis(body, context.env);
@@ -40,7 +45,8 @@ export const onRequestPost = async (context: PagesContext) => {
         if (prepared.cachedAnalysis) {
           send({
             type: "status",
-            message: lang === "zh" ? "命中跨用户缓存，正在载入结果" : "Cross-user cache hit. Loading result.",
+            stage: "cached",
+            message: lang === "zh" ? "命中跨用户缓存，正在载入结果..." : "Cross-user cache hit. Loading result...",
           });
           send({
             type: "done",
@@ -57,11 +63,28 @@ export const onRequestPost = async (context: PagesContext) => {
 
         send({
           type: "status",
+          stage: "collected",
+          releaseCount: prepared.range.releasesToAnalyze.length,
           message:
             lang === "zh"
-              ? `已发现 ${prepared.range.releasesToAnalyze.length} 个待分析正式版本`
-              : `Found ${prepared.range.releasesToAnalyze.length} official releases to analyze`,
+              ? `已收集到 ${prepared.range.releasesToAnalyze.length} 个版本记录`
+              : `Collected ${prepared.range.releasesToAnalyze.length} release records`,
         });
+
+        const aiConfig = resolveAiConfig(prepared.request, context.env);
+        send({
+          type: "status",
+          stage: "summarizing",
+          message: lang === "zh" ? "正在汇总" : "Summarizing",
+        });
+
+        if (isReasoningModel(aiConfig.model)) {
+          send({
+            type: "status",
+            stage: "reasoning",
+            message: lang === "zh" ? "正在深度推理..." : "Deep reasoning in progress...",
+          });
+        }
 
         const aiResponse = await fetchAiStream({
           request: prepared.request,
@@ -76,7 +99,9 @@ export const onRequestPost = async (context: PagesContext) => {
 
         send({
           type: "status",
-          message: lang === "zh" ? "正在汇总核心功能、修复和风险" : "Summarizing features, fixes, and risks",
+          stage: "generating",
+          tokenCount: 0,
+          message: lang === "zh" ? "报告生成中..." : "Generating report...",
         });
 
         const reader = aiResponse.body!.getReader();
@@ -103,7 +128,7 @@ export const onRequestPost = async (context: PagesContext) => {
               const delta = json?.choices?.[0]?.delta?.content || "";
               if (delta) {
                 content += delta;
-                send({ type: "delta", text: delta });
+                send({ type: "delta", text: delta, approxTokenCount: Math.ceil(content.length / 4) });
               }
             } catch {
               // Ignore malformed provider stream chunks.
@@ -126,7 +151,6 @@ export const onRequestPost = async (context: PagesContext) => {
           rawContent: content,
         });
 
-        const aiConfig = resolveAiConfig(prepared.request, context.env);
         await writeAnalysisCache(
           {
             cacheKey: prepared.cacheKey || "",

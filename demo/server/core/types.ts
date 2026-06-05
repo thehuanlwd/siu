@@ -1,6 +1,13 @@
 export type LanguageCode = "en" | "zh";
 export type VerdictType = "yes" | "no" | "maybe";
-export type AnalyzeInputType = "version" | "timeframe";
+export type AnalyzeInputType = "version" | "timeframe" | "recent";
+export type UpgradePreferenceLevel = "ignore" | "neutral" | "strong";
+
+export interface UpgradePreferences {
+  features: UpgradePreferenceLevel;
+  ux: UpgradePreferenceLevel;
+  bugs: UpgradePreferenceLevel;
+}
 
 export interface RuntimeEnv {
   OPENAI_API_URL?: string;
@@ -56,10 +63,12 @@ export interface AnalyzeRequestBody {
   repoUrl: string;
   currentVersion?: string;
   timeframe?: "1w" | "1m" | "3m";
+  recentReleases?: number;
   customApiUrl?: string;
   customApiKey?: string;
   customModel?: string;
   lang?: LanguageCode;
+  preferences?: Partial<UpgradePreferences>;
 }
 
 export interface UpgradeAnalysis {
@@ -72,6 +81,7 @@ export interface UpgradeAnalysis {
   breakingChanges: string[];
   criticalFixes: string[];
   newFeatures: string[];
+  preferences: UpgradePreferences;
   versionCount: number;
   releaseBreakdown: Array<{
     tag: string;

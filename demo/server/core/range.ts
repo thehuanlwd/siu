@@ -57,6 +57,11 @@ function timeframeLabel(timeframe: "1w" | "1m" | "3m", lang: LanguageCode): stri
   return "last three months";
 }
 
+function recentReleaseCount(value?: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(50, Math.max(1, Math.floor(Number(value))));
+}
+
 export function officialReleasesOnly(releases: GitHubRelease[]): GitHubRelease[] {
   return releases
     .filter((release) => !release.isDraft && !release.isPrerelease)
@@ -65,11 +70,40 @@ export function officialReleasesOnly(releases: GitHubRelease[]): GitHubRelease[]
 
 export function resolveReleaseRange(
   releases: GitHubRelease[],
-  request: Pick<AnalyzeRequestBody, "currentVersion" | "timeframe" | "lang">
+  request: Pick<AnalyzeRequestBody, "currentVersion" | "timeframe" | "recentReleases" | "lang">
 ): ReleaseRangeResult {
   const lang = request.lang || "en";
   const officialReleases = officialReleasesOnly(releases);
   const latestVersion = officialReleases[0]?.tagName || "Unknown";
+  const requestedRecentCount = recentReleaseCount(request.recentReleases);
+
+  if (requestedRecentCount > 0) {
+    const releasesToAnalyze = officialReleases.slice(0, requestedRecentCount);
+
+    if (releasesToAnalyze.length === 0) {
+      return {
+        status: "up_to_date",
+        inputType: "recent",
+        inputValue: String(requestedRecentCount),
+        currentVersionLabel: latestVersion,
+        latestVersion,
+        releasesToAnalyze,
+        message:
+          lang === "zh"
+            ? "该项目暂时没有可分析的正式 GitHub Release。"
+            : "No official GitHub releases were found for this repository.",
+      };
+    }
+
+    return {
+      status: "ready",
+      inputType: "recent",
+      inputValue: String(requestedRecentCount),
+      currentVersionLabel: releasesToAnalyze[releasesToAnalyze.length - 1].tagName,
+      latestVersion,
+      releasesToAnalyze,
+    };
+  }
 
   if (request.timeframe) {
     const cutoff = timeframeCutoff(request.timeframe);

@@ -11,6 +11,13 @@ export interface TagInfo {
 }
 
 export type VerdictType = 'yes' | 'no' | 'maybe';
+export type UpgradePreferenceLevel = 'ignore' | 'neutral' | 'strong';
+
+export interface UpgradePreferences {
+  features: UpgradePreferenceLevel;
+  ux: UpgradePreferenceLevel;
+  bugs: UpgradePreferenceLevel;
+}
 
 export interface UpgradeAnalysis {
   repoName: string;
@@ -22,6 +29,7 @@ export interface UpgradeAnalysis {
   breakingChanges: string[];
   criticalFixes: string[];
   newFeatures: string[];
+  preferences: UpgradePreferences;
   versionCount: number;
   releaseBreakdown: Array<{
     tag: string;

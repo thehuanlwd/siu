@@ -132,7 +132,7 @@ export default function VersionLatticeBg() {
 
       // 获取 CSS 变量值
       const style = getComputedStyle(document.documentElement);
-      const accentRgb = (style.getPropertyValue('--accent-color-rgb') || '79, 70, 229').trim();
+      const accentRgb = (style.getPropertyValue('--accent-color-rgb') || '196, 149, 58').trim();
       const charcoalRgb = (style.getPropertyValue('--text-charcoal-rgb') || '26, 26, 26').trim();
 
       // 1. Draw elegant blueprint grid

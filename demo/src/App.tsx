@@ -13,10 +13,10 @@ import {
   ChevronDown,
   ExternalLink,
   ChevronRight,
+  ArrowLeft,
   Info,
   X,
   Layers,
-  CheckCircle2,
   AlertCircle,
   Sliders,
   Settings,
@@ -24,35 +24,90 @@ import {
   Moon
 } from 'lucide-react';
 import Loader from './components/Loader';
+import type { LoaderStatus } from './components/Loader';
 import HistorySidebar from './components/HistorySidebar';
 import DevDocs from './components/DevDocs';
+import PreferenceControl, {
+  DEFAULT_UPGRADE_PREFERENCES,
+  PreferenceStatusLine,
+  PreferenceSummaryList,
+  normalizePreferences,
+} from './components/PreferenceControl';
 import VersionLatticeBg from './components/VersionLatticeBg';
-import { UpgradeAnalysis, HistoryItem, VerdictType } from './types';
+import { UpgradeAnalysis, HistoryItem, VerdictType, UpgradePreferences } from './types';
 import { translations } from './locales';
+
+type ThemeMode = 'light' | 'dark';
+type LanguageMode = 'en' | 'zh';
+type AnalysisTriggerOptions = {
+  repoUrl?: string;
+  currentVersion?: string;
+  timeframe?: string;
+  recentReleases?: number;
+};
+
+const PREFERENCES_STORAGE_KEY = 'siu_upgrade_preferences';
+const PREFERENCES_CONFIGURED_KEY = 'siu_upgrade_preferences_configured';
+
+const getPreferredTheme = (): ThemeMode => {
+  const saved = localStorage.getItem('siu_theme');
+  const source = localStorage.getItem('siu_theme_source');
+  if (source === 'manual' && (saved === 'light' || saved === 'dark')) return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
+
+const getPreferredLanguage = (): LanguageMode => {
+  const saved = localStorage.getItem('siu_language');
+  const source = localStorage.getItem('siu_language_source');
+  if (source === 'manual' && (saved === 'en' || saved === 'zh')) return saved as LanguageMode;
+
+  const browserLanguages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  return browserLanguages.some((item) => item.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+};
+
+const getStoredPreferences = (): UpgradePreferences => {
+  if (localStorage.getItem(PREFERENCES_CONFIGURED_KEY) !== 'true') {
+    return DEFAULT_UPGRADE_PREFERENCES;
+  }
+
+  try {
+    const saved = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    return saved ? normalizePreferences(JSON.parse(saved)) : DEFAULT_UPGRADE_PREFERENCES;
+  } catch {
+    return DEFAULT_UPGRADE_PREFERENCES;
+  }
+};
 
 export default function App() {
   // Theme state
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('siu_theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  const [theme, setTheme] = useState<ThemeMode>(getPreferredTheme);
 
   // Sync theme with DOM
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('siu_theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (localStorage.getItem('siu_theme_source') === 'manual') return;
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleBrowserThemeChange = (event: MediaQueryListEvent) => {
+      if (localStorage.getItem('siu_theme_source') === 'manual') return;
+      setTheme(event.matches ? 'dark' : 'light');
+    };
+
+    mediaQuery.addEventListener('change', handleBrowserThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleBrowserThemeChange);
+  }, []);
+
   // Multilingual localization states
-  const [lang, setLang] = useState<'en' | 'zh'>(() => {
-    const saved = localStorage.getItem('siu_language');
-    if (saved === 'en' || saved === 'zh') return saved as 'en' | 'zh';
-    const browserLang = (navigator.language || '').toLowerCase();
-    return browserLang.startsWith('zh') ? 'zh' : 'en';
-  });
+  const [lang, setLang] = useState<LanguageMode>(getPreferredLanguage);
 
   const t = translations[lang];
+
+  useEffect(() => {
+    document.documentElement.lang = lang === 'zh' ? 'zh' : 'en';
+  }, [lang]);
 
   // Navigation Screens & Drawer Overlays
   const [currentTab, setCurrentTab] = useState<'analyzer' | 'developer'>('analyzer');
@@ -79,16 +134,17 @@ export default function App() {
 
   // Frontend cache for repository tags to avoid redundant loading
   const tagsCacheRef = useRef<Record<string, Array<{ name: string; releaseName?: string; publishedAt?: string }>>>({});
+  const skipNextAutoTagLoadRef = useRef(false);
 
   // Home State vs Result State
   // We are in "landing" mode if there's no ongoing analysis, no parsed results, and no errors.
   const [hasSearched, setHasSearched] = useState(false);
 
   // Query States
-  const [repoUrl, setRepoUrl] = useState('https://github.com/facebook/react');
+  const [repoUrl, setRepoUrl] = useState('');
   const [tags, setTags] = useState<Array<{ name: string; releaseName?: string; publishedAt?: string }>>([]);
   const [tagsLoading, setTagsLoading] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState('18.2.0');
+  const [currentVersion, setCurrentVersion] = useState('');
   const [useTimeframe, setUseTimeframe] = useState(false);
   const [timeframe, setTimeframe] = useState('1m'); // '1w', '1m', '3m'
   const [manualVersion, setManualVersion] = useState('');
@@ -104,10 +160,15 @@ export default function App() {
     message: string;
   } | null>(null);
   const [analysisResult, setAnalysisResult] = useState<UpgradeAnalysis | null>(null);
-  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] = useState<LoaderStatus | null>(null);
 
   // UI state
   const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+  const [upgradePreferences, setUpgradePreferences] = useState<UpgradePreferences>(getStoredPreferences);
+  const [preferencesConfigured, setPreferencesConfigured] = useState(
+    () => localStorage.getItem(PREFERENCES_CONFIGURED_KEY) === 'true'
+  );
+  const [preferencesFlipped, setPreferencesFlipped] = useState(false);
 
   // History State (Persisted in localStorage)
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -121,16 +182,22 @@ export default function App() {
 
   // Pre-seed repositories for rapid trials
   const POPULAR_REPOS = [
-    { name: 'facebook/react', url: 'https://github.com/facebook/react', defaultVer: '18.2.0' },
-    { name: 'tailwindlabs/tailwindcss', url: 'https://github.com/tailwindlabs/tailwindcss', defaultVer: 'v3.3.0' },
-    { name: 'vllm-project/vllm', url: 'https://github.com/vllm-project/vllm', defaultVer: 'v0.3.0' },
-    { name: 'expressjs/express', url: 'https://github.com/expressjs/express', defaultVer: '4.18.2' }
+    { name: 'iOfficeAI/AionUi', url: 'https://github.com/iOfficeAI/AionUi', recentReleases: 10 },
+    { name: 'openclaw/openclaw', url: 'https://github.com/openclaw/openclaw', recentReleases: 10 },
+    { name: 'CherryHQ/cherry-studio', url: 'https://github.com/CherryHQ/cherry-studio', recentReleases: 10 }
   ];
 
   // Auto load tags when repository changes
   useEffect(() => {
     if (repoUrl.trim()) {
+      if (skipNextAutoTagLoadRef.current) {
+        skipNextAutoTagLoadRef.current = false;
+        return;
+      }
       fetchTagsOfRepo(repoUrl);
+    } else {
+      setTags([]);
+      setCurrentVersion('');
     }
   }, [repoUrl]);
 
@@ -138,11 +205,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('siu_audit_ledger', JSON.stringify(history));
   }, [history]);
-
-  // Persist Chosen Language
-  useEffect(() => {
-    localStorage.setItem('siu_language', lang);
-  }, [lang]);
 
   // Persist Custom API Configurations
   useEffect(() => {
@@ -160,6 +222,10 @@ export default function App() {
       localStorage.removeItem('siu_custom_model');
     }
   }, [customModel]);
+
+  useEffect(() => {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(upgradePreferences));
+  }, [upgradePreferences]);
 
   // Fetch online OpenAI-compatible model list
   const handleFetchModels = async () => {
@@ -197,13 +263,13 @@ export default function App() {
     }
   };
 
-  const fetchTagsOfRepo = async (targetUrl: string, forceRefresh = false) => {
+  const fetchTagsOfRepo = async (targetUrl: string, forceRefresh = false, autoSelectVersion = true) => {
     if (!forceRefresh) {
       const cached = tagsCacheRef.current[targetUrl];
       if (cached) {
         console.log(`[Frontend] 从前端缓存加载仓库的版本列表: ${targetUrl}`);
         setTags(cached);
-        if (cached.length > 0) {
+        if (autoSelectVersion && cached.length > 0) {
           const indexToSelect = Math.min(3, cached.length - 1);
           if (cached[indexToSelect]) {
             setCurrentVersion(cached[indexToSelect].name);
@@ -211,7 +277,7 @@ export default function App() {
             setCurrentVersion(cached[0].name);
           }
         }
-        return;
+        return cached;
       }
     }
 
@@ -225,7 +291,7 @@ export default function App() {
         console.log(`[Frontend] 获取版本/标签成功。共获取到 ${data.tags.length} 个版本，数据源: ${data.source}`);
         tagsCacheRef.current[targetUrl] = data.tags;
         setTags(data.tags);
-        if (data.tags.length > 0) {
+        if (autoSelectVersion && data.tags.length > 0) {
           // Select an older tag if present to simulate being outdated
           const indexToSelect = Math.min(3, data.tags.length - 1);
           if (data.tags[indexToSelect]) {
@@ -234,6 +300,7 @@ export default function App() {
             setCurrentVersion(data.tags[0].name);
           }
         }
+        return data.tags;
       } else {
         console.error(`[Frontend] 获取版本/标签失败。状态码: ${resp.status} | 错误详情:`, data.error || data);
       }
@@ -242,6 +309,8 @@ export default function App() {
     } finally {
       setTagsLoading(false);
     }
+
+    return [];
   };
 
   const handleFetchTagsManually = () => {
@@ -259,16 +328,21 @@ export default function App() {
     } else if (data.status === 'requires_version_resolution') {
       throw new Error(data.message || (lang === 'zh' ? '请选择一个正式发布版本后再分析。' : 'Choose an official release version before analyzing.'));
     } else if (data.status === 'success' && data.analysis) {
-      setAnalysisResult(data.analysis);
+      const normalizedAnalysis: UpgradeAnalysis = {
+        ...data.analysis,
+        preferences: normalizePreferences(data.analysis.preferences || upgradePreferences),
+      };
+
+      setAnalysisResult(normalizedAnalysis);
       
       const newHistoryItem: HistoryItem = {
         id: Math.random().toString(36).substr(2, 9),
-        repoName: data.analysis.repoName,
-        currentVersion: data.analysis.currentVersion,
-        latestVersion: data.analysis.latestVersion,
-        verdict: data.analysis.verdict,
+        repoName: normalizedAnalysis.repoName,
+        currentVersion: normalizedAnalysis.currentVersion,
+        latestVersion: normalizedAnalysis.latestVersion,
+        verdict: normalizedAnalysis.verdict,
         timestamp: new Date().toISOString(),
-        analysis: data.analysis
+        analysis: normalizedAnalysis
       };
 
       setHistory(prev => {
@@ -298,26 +372,40 @@ export default function App() {
     handleAnalysisResponse(data);
   };
 
-  const triggerAnalysis = async (customRepo?: string, customVerOverride?: string, customTimeframe?: string) => {
+  const triggerAnalysis = async (options: AnalysisTriggerOptions = {}) => {
+    const finalRepo = (options.repoUrl || repoUrl).trim();
+    if (!finalRepo) {
+      setError(lang === 'zh' ? '请先输入一个 GitHub 项目地址。' : 'Enter a GitHub repository first.');
+      setHasSearched(false);
+      return;
+    }
+
     setIsLoading(true);
     setHasSearched(true);
     setError(null);
     setUpToDateStatus(null);
     setAnalysisResult(null);
-    setStreamStatus(lang === 'zh' ? '正在启动 SIU 审计引擎' : 'Starting SIU audit engine');
+    setStreamStatus({
+      stage: 'init',
+      message: lang === 'zh' ? 'SIU 初始化成功...' : 'SIU initialized...',
+      tokenCount: 0,
+    });
 
-    const finalRepo = (customRepo || repoUrl).trim();
     const activeVersion = customVersionActive 
       ? manualVersion.trim() 
-      : (customVerOverride || currentVersion);
+      : (options.currentVersion || currentVersion);
+    const activeRecentReleases = options.recentReleases;
+    const shouldUseTimeframe = !activeRecentReleases && (Boolean(options.timeframe) || useTimeframe);
     
     const requestPayload = {
       repoUrl: finalRepo,
-      currentVersion: useTimeframe ? undefined : activeVersion,
-      timeframe: useTimeframe ? (customTimeframe || timeframe) : undefined,
+      currentVersion: activeRecentReleases || shouldUseTimeframe ? undefined : activeVersion,
+      timeframe: shouldUseTimeframe ? (options.timeframe || timeframe) : undefined,
+      recentReleases: activeRecentReleases,
       customApiUrl: customApiUrl || undefined,
       customApiKey: customApiKey || undefined,
       customModel: customModel.trim() || undefined,
+      preferences: upgradePreferences,
       lang: lang
     };
 
@@ -359,7 +447,19 @@ export default function App() {
 
           const event = JSON.parse(trimmed);
           if (event.type === 'status') {
-            setStreamStatus(event.message);
+            setStreamStatus((prev) => ({
+              stage: event.stage || prev?.stage || 'init',
+              message: event.message || prev?.message || '',
+              releaseCount: event.releaseCount ?? prev?.releaseCount,
+              tokenCount: event.tokenCount ?? prev?.tokenCount,
+            }));
+          } else if (event.type === 'delta') {
+            setStreamStatus((prev) => ({
+              stage: 'generating',
+              message: prev?.message || (lang === 'zh' ? '报告生成中...' : 'Generating report...'),
+              releaseCount: prev?.releaseCount,
+              tokenCount: event.approxTokenCount ?? (prev?.tokenCount || 0) + Math.max(1, Math.ceil((event.text || '').length / 4)),
+            }));
           } else if (event.type === 'error') {
             throw new Error(event.error || "Analysis stream failed.");
           } else if (event.type === 'done') {
@@ -382,9 +482,14 @@ export default function App() {
   };
 
   const loadHistoryItem = (item: HistoryItem) => {
+    const normalizedAnalysis: UpgradeAnalysis = {
+      ...item.analysis,
+      preferences: normalizePreferences(item.analysis.preferences),
+    };
     setRepoUrl(`https://github.com/${item.repoName}`);
     setCurrentVersion(item.currentVersion);
-    setAnalysisResult(item.analysis);
+    setAnalysisResult(normalizedAnalysis);
+    setUpgradePreferences(normalizedAnalysis.preferences);
     setUpToDateStatus(null);
     setError(null);
     setHasSearched(true);
@@ -402,12 +507,16 @@ export default function App() {
     }
   };
 
-  const handleQuickSeed = (repo: typeof POPULAR_REPOS[number]) => {
+  const handleQuickSeed = async (repo: typeof POPULAR_REPOS[number]) => {
+    skipNextAutoTagLoadRef.current = true;
     setRepoUrl(repo.url);
-    setCurrentVersion(repo.defaultVer);
+    setManualVersion('');
     setCustomVersionActive(false);
     setUseTimeframe(false);
-    triggerAnalysis(repo.url, repo.defaultVer);
+    const repoTags = await fetchTagsOfRepo(repo.url, false, false);
+    const selectedTag = repoTags[Math.min(repo.recentReleases - 1, repoTags.length - 1)]?.name || '';
+    setCurrentVersion(selectedTag);
+    triggerAnalysis({ repoUrl: repo.url, recentReleases: repo.recentReleases });
   };
 
   const toggleVersionRow = (tag: string) => {
@@ -420,11 +529,11 @@ export default function App() {
   const getVerdictLabel = (verdict: VerdictType) => {
     switch (verdict) {
       case 'yes':
-        return lang === 'zh' ? '强烈推荐升级' : 'Upgrade Recommended';
+        return lang === 'zh' ? '强烈推荐，必升！' : 'Upgrade Recommended';
       case 'no':
-        return lang === 'zh' ? '建议暂缓升级' : 'Hold Current Version';
+        return lang === 'zh' ? '慎重考虑！' : 'Hold Current Version';
       case 'maybe':
-        return lang === 'zh' ? '评估谨慎测试' : 'Evaluate & Test';
+        return lang === 'zh' ? '随意，您看着办' : 'Evaluate & Test';
       default:
         return 'Unknown';
     }
@@ -433,11 +542,11 @@ export default function App() {
   const getVerdictSentence = (verdict: VerdictType) => {
     switch (verdict) {
       case 'yes':
-        return lang === 'zh' ? '强烈建议升级，包含多项关键安全维护与新功能。' : 'Action recommended. Upgrading carries key improvements.';
+        return lang === 'zh' ? '这次更新确实有东西，修复、功能或体验提升都比较实在，值得尽快跟上。' : 'Action recommended. Upgrading carries key improvements.';
       case 'no':
-        return lang === 'zh' ? '建议保留当前版本，暂无急迫安全风险，或新版存在潜在破坏性变动。' : 'Consolidated view suggests holding back from current migration path.';
+        return lang === 'zh' ? '新版目前看不到特别刚需的收益，或者升级成本偏高，先别急着动。' : 'Consolidated view suggests holding back from current migration path.';
       case 'maybe':
-        return lang === 'zh' ? '请按需谨慎迁移。新版具有一些非必须的功能或零星漏洞修复。' : 'Conduct selective review. Contains non-vital features or updates.';
+        return lang === 'zh' ? '有一些变化，但不是人人都需要；想尝鲜可以升，只求稳定也可以等等。' : 'Conduct selective review. Contains non-vital features or updates.';
       default:
         return '';
     }
@@ -446,14 +555,38 @@ export default function App() {
   const getVerdictShort = (verdict: VerdictType) => {
     switch (verdict) {
       case 'yes':
-        return lang === 'zh' ? '是' : 'Yes';
+        return lang === 'zh' ? 'YES' : 'Yes';
       case 'no':
-        return lang === 'zh' ? '否' : 'No';
+        return lang === 'zh' ? 'NO' : 'No';
       case 'maybe':
-        return lang === 'zh' ? '评估' : 'Maybe';
+        return lang === 'zh' ? '？' : 'Maybe';
       default:
         return '?';
     }
+  };
+
+  const getUpgradeHighlights = (analysis: UpgradeAnalysis) => {
+    const seen = new Set<string>();
+    return [...(analysis.coreHighlights || []), ...(analysis.newFeatures || [])].filter((item) => {
+      const normalized = item.trim();
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  };
+
+  const handleLanguageToggle = () => {
+    const nextLang = lang === 'zh' ? 'en' : 'zh';
+    localStorage.setItem('siu_language', nextLang);
+    localStorage.setItem('siu_language_source', 'manual');
+    setLang(nextLang);
+  };
+
+  const handleThemeToggle = () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('siu_theme', nextTheme);
+    localStorage.setItem('siu_theme_source', 'manual');
+    setTheme(nextTheme);
   };
 
   const resetToHome = () => {
@@ -461,6 +594,240 @@ export default function App() {
     setAnalysisResult(null);
     setUpToDateStatus(null);
     setError(null);
+  };
+
+  const getRepoHref = (repoName: string) => `https://github.com/${repoName}`;
+
+  const getReleaseHref = (repoName: string, version: string) => {
+    const trimmed = version.trim();
+    if (!trimmed || /\s/.test(trimmed)) return "";
+    return `https://github.com/${repoName}/releases/tag/${encodeURIComponent(trimmed)}`;
+  };
+
+  const renderReleaseLink = (version: string, className: string) => {
+    const href = analysisResult ? getReleaseHref(analysisResult.repoName, version) : "";
+    if (!href) {
+      return <span className={className}>{version}</span>;
+    }
+
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={`${className} hover:text-accent-indigo hover:underline`}
+      >
+        {version}
+      </a>
+    );
+  };
+
+  const confirmPreferences = () => {
+    localStorage.setItem(PREFERENCES_CONFIGURED_KEY, 'true');
+    setPreferencesConfigured(true);
+    setPreferencesFlipped(false);
+  };
+
+  const renderSearchPanel = (variant: 'landing' | 'results') => {
+    const frontPanelClass = "bg-paper-block p-6 md:p-8 rounded-sm border border-ui-border shadow-search space-y-5";
+    const backPanelClass = "bg-paper-block px-6 py-5 md:px-8 md:py-6 rounded-sm border border-ui-border shadow-search space-y-7";
+
+    return (
+      <div className={`${variant === 'results' ? 'w-full max-w-5xl mx-auto ' : ''}preference-card-shell`}>
+        <motion.div
+          className={`preference-flip-card ${preferencesFlipped ? 'is-flipped' : ''}`}
+          animate={{
+            rotateY: preferencesFlipped ? 180 : 0,
+            height: preferencesFlipped ? 318 : 248,
+          }}
+          transition={{
+            rotateY: { duration: 0.46, ease: 'linear' },
+            height: { duration: 0.28, ease: 'linear' },
+          }}
+        >
+          <div className={`preference-card-face preference-card-front ${frontPanelClass} ${preferencesFlipped ? 'pointer-events-none' : ''}`}>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="flex-1 space-y-6">
+                <div className="flex gap-4 border-b-2 border-search-line pb-2.5 items-center">
+                  <input
+                    type="text"
+                    placeholder={t.enterRepoPlaceholder}
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && triggerAnalysis()}
+                    className="min-w-0 bg-transparent text-lg md:text-2xl font-serif italic outline-none flex-1 placeholder:text-charcoal/45 text-charcoal border-none focus:ring-0 px-0"
+                    id={variant === 'landing' ? 'landing-search-input' : 'active-search-input'}
+                  />
+                  <button
+                    disabled={isLoading}
+                    onClick={() => triggerAnalysis()}
+                    className="bg-btn-primary text-btn-primary-text px-8 py-3 text-xs uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all font-bold shrink-0 rounded-sm cursor-pointer disabled:opacity-40"
+                    id={variant === 'landing' ? 'landing-search-btn' : 'active-search-btn'}
+                  >
+                    {t.analyze}
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-2 text-xs">
+                  <div className="flex bg-paper-aside p-1 rounded-sm text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setUseTimeframe(false)}
+                      className={`px-3 py-1 rounded-sm transition-all ${!useTimeframe ? 'bg-paper-block text-charcoal shadow-xs font-bold' : 'text-charcoal/55'}`}
+                    >
+                      {t.specificVersion}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUseTimeframe(true)}
+                      className={`px-3 py-1 rounded-sm transition-all ${useTimeframe ? 'bg-paper-block text-charcoal shadow-xs font-bold' : 'text-charcoal/55'}`}
+                    >
+                      {t.relativeTimeframe}
+                    </button>
+                  </div>
+
+                  {!useTimeframe ? (
+                    <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
+                      <span className="text-charcoal/40 font-mono text-[9px] uppercase font-bold">{t.installedLabel}</span>
+
+                      {customVersionActive ? (
+                        <div className="flex items-center space-x-1.5">
+                          <input
+                            type="text"
+                            placeholder="e.g. 18.2.0"
+                            value={manualVersion}
+                            onChange={(e) => setManualVersion(e.target.value)}
+                            className="p-1 px-2 border border-ui-border bg-transparent rounded-sm text-xs font-mono font-bold max-w-[85px] outline-none text-charcoal"
+                            id={variant === 'landing' ? 'landing-manual-version' : 'active-manual-version'}
+                          />
+                          <button
+                            onClick={() => setCustomVersionActive(false)}
+                            className="text-[10px] text-accent-indigo/80 hover:underline font-bold"
+                          >
+                            {t.autoList}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <div className="relative">
+                            <select
+                              value={currentVersion}
+                              onChange={(e) => setCurrentVersion(e.target.value)}
+                              disabled={tagsLoading || tags.length === 0}
+                              className="theme-select appearance-none pr-8 pl-2 py-1 border rounded-sm text-xs font-mono font-bold outline-none cursor-pointer transition-all"
+                              id={variant === 'landing' ? 'landing-version-select' : 'active-version-select'}
+                            >
+                              {tagsLoading ? (
+                                <option>{t.loadingTags}</option>
+                              ) : tags.length === 0 ? (
+                                <option>{t.noTagsFound}</option>
+                              ) : (
+                                tags.map((tag) => (
+                                  <option key={tag.name} value={tag.name}>
+                                    {tag.name}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-charcoal/50 pointer-events-none" />
+                          </div>
+
+                          <button
+                            onClick={() => setCustomVersionActive(true)}
+                            className="text-[10px] text-charcoal/40 hover:text-charcoal hover:underline"
+                          >
+                            {t.customLabel}
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleFetchTagsManually}
+                        className="p-1 rounded-full hover:bg-charcoal/5"
+                        title="Reload Tag Registry"
+                        disabled={tagsLoading || !repoUrl.trim()}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-charcoal/40 ${tagsLoading ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <span className="text-charcoal/40 font-mono text-[9px] uppercase font-bold">{t.ageCheckedLabel}</span>
+                      <div className="flex border border-ui-border rounded-sm overflow-hidden bg-paper-block">
+                        {['1w', '1m', '3m'].map((tf) => (
+                          <button
+                            key={tf}
+                            type="button"
+                            onClick={() => setTimeframe(tf)}
+                            className={`px-3 py-1 font-mono transition-all text-[11px] font-extrabold ${timeframe === tf ? 'bg-btn-primary text-btn-primary-text' : 'text-charcoal hover:bg-charcoal/5'}`}
+                          >
+                            {tf.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setPreferencesFlipped(true)}
+                    className="inline-flex w-fit items-center gap-1.5 bg-transparent p-0 text-[10px] font-mono uppercase tracking-wider text-charcoal/45 transition hover:text-charcoal active:scale-[0.98]"
+                    title={lang === 'zh' ? '倾向配置' : 'Preferences'}
+                    aria-label={lang === 'zh' ? '倾向配置' : 'Preferences'}
+                  >
+                    <Sliders className="h-3.5 w-3.5" />
+                    <span>{lang === 'zh' ? '倾向配置' : 'Preferences'}</span>
+                    {!preferencesConfigured && (
+                      <span className="ml-0.5 h-1 w-1 rounded-full bg-charcoal/45" aria-hidden="true" />
+                    )}
+                  </button>
+                  <PreferenceStatusLine lang={lang} value={upgradePreferences} />
+                </div>
+              </div>
+
+              {variant === 'results' && analysisResult && (
+                <div className="hidden md:block">
+                  <div className="inline-block border border-charcoal p-3.5 rotate-2 rounded-sm bg-paper-light text-center min-w-[100px]">
+                    <p className="text-[11px] font-serif font-extrabold">{analysisResult.repoName.split('/').pop()}</p>
+                    <p className="verdict-seal-word text-xl font-bold my-0.5 text-charcoal">
+                      {getVerdictShort(analysisResult.verdict)}
+                    </p>
+                    <p className="text-[8px] uppercase tracking-wider opacity-40 font-mono">{t.verdictSealLabel}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={`preference-card-face preference-card-back ${backPanelClass} ${preferencesFlipped ? '' : 'pointer-events-none'}`} aria-hidden={!preferencesFlipped}>
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                onClick={() => setPreferencesFlipped(false)}
+                className="inline-flex items-center gap-3 bg-transparent p-0 text-charcoal transition hover:text-charcoal/70"
+                aria-label={lang === 'zh' ? '返回搜索' : 'Back to search'}
+              >
+                <ArrowLeft className="h-7 w-7 stroke-[3]" />
+                <span className="font-sans text-xl font-normal text-charcoal md:text-2xl">
+                  {lang === 'zh' ? '请选择您的偏好' : 'Choose your preferences'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={confirmPreferences}
+                className="shrink-0 rounded-sm bg-btn-primary px-6 py-2.5 text-sm font-normal tracking-widest text-btn-primary-text transition-all hover:opacity-90 active:scale-[0.98]"
+              >
+                {lang === 'zh' ? '确定' : 'Done'}
+              </button>
+            </div>
+
+            <PreferenceControl lang={lang} value={upgradePreferences} onChange={setUpgradePreferences} />
+          </div>
+        </motion.div>
+      </div>
+    );
   };
 
   return (
@@ -522,7 +889,7 @@ export default function App() {
 
           <button 
             type="button" 
-            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} 
+            onClick={handleLanguageToggle} 
             className="hover:text-charcoal hover:underline flex items-center space-x-1 cursor-pointer text-accent-indigo font-bold bg-charcoal/5 px-1.5 py-0.5 rounded-sm"
             id="open-lang-toggle-btn"
           >
@@ -533,7 +900,7 @@ export default function App() {
 
           <button 
             type="button" 
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+            onClick={handleThemeToggle} 
             className="hover:text-charcoal hover:underline flex items-center space-x-1 cursor-pointer text-accent-indigo font-bold"
             id="open-theme-toggle-btn"
             title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
@@ -564,141 +931,12 @@ export default function App() {
                 <h1 className="font-serif italic text-7xl md:text-8xl font-bold tracking-tighter text-charcoal select-none animate-fade-in">
                   SIU.
                 </h1>
-                <p className="text-[11px] uppercase tracking-widest text-charcoal/50 font-extrabold mt-3">
-                  {t.shouldIUpgrade}
-                </p>
+              <p className="brand-subtitle tracking-normal text-charcoal/60 font-semibold mt-3">
+                {t.shouldIUpgrade}
+              </p>
               </div>
 
-              {/* Minimal Search and Submit Area */}
-              <div className="bg-paper-block p-6 md:p-8 rounded-sm border border-ui-border shadow-search space-y-6">
-                
-                {/* Horizontal Input */}
-                <div className="flex gap-4 border-b-2 border-search-line pb-2.5 items-center">
-                  <input
-                    type="text"
-                    placeholder={t.enterRepoPlaceholder}
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && triggerAnalysis()}
-                    className="bg-transparent text-lg md:text-2xl font-serif italic outline-none flex-1 placeholder:text-charcoal/45 text-charcoal border-none focus:ring-0 px-0"
-                    id="landing-search-input"
-                  />
-                  <button
-                    onClick={() => triggerAnalysis()}
-                    className="bg-btn-primary text-btn-primary-text px-8 py-3 text-xs uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all font-bold shrink-0 rounded-sm cursor-pointer"
-                    id="landing-search-btn"
-                  >
-                    {t.analyze}
-                  </button>
-                </div>
-
-                {/* Switchers & Displacement Parameters */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-2 text-xs">
-                  
-                  {/* Select Mode */}
-                  <div className="flex bg-paper-aside p-1 rounded-sm text-[11px] font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setUseTimeframe(false)}
-                      className={`px-3 py-1 rounded-sm transition-all ${!useTimeframe ? 'bg-paper-block text-charcoal shadow-xs font-bold' : 'text-charcoal/55'}`}
-                    >
-                      {t.specificVersion}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUseTimeframe(true)}
-                      className={`px-3 py-1 rounded-sm transition-all ${useTimeframe ? 'bg-paper-block text-charcoal shadow-xs font-bold' : 'text-charcoal/55'}`}
-                    >
-                      {t.relativeTimeframe}
-                    </button>
-                  </div>
-
-                  {/* Version Settings inside landing layout */}
-                  {!useTimeframe ? (
-                    <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
-                      <span className="text-charcoal/40 font-mono text-[9px] uppercase font-bold">{t.installedLabel}</span>
-                      
-                      {customVersionActive ? (
-                        <div className="flex items-center space-x-1.5">
-                          <input
-                            type="text"
-                            placeholder="e.g. 18.2.0"
-                            value={manualVersion}
-                            onChange={(e) => setManualVersion(e.target.value)}
-                            className="p-1 px-2 border border-ui-border bg-transparent rounded-sm text-xs font-mono font-bold max-w-[85px] outline-none text-charcoal"
-                            id="landing-manual-version"
-                          />
-                          <button 
-                            onClick={() => setCustomVersionActive(false)}
-                            className="text-[10px] text-accent-indigo/80 hover:underline font-bold"
-                          >
-                            {t.autoList}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center space-x-2">
-                          <div className="relative">
-                            <select
-                               value={currentVersion}
-                               onChange={(e) => setCurrentVersion(e.target.value)}
-                               disabled={tagsLoading || tags.length === 0}
-                               className="appearance-none bg-transparent pr-7 pl-2 py-1 border border-ui-border rounded-sm text-xs font-mono font-bold outline-none cursor-pointer hover:bg-charcoal/5 transition-all text-charcoal pr-8"
-                               id="landing-version-select"
-                            >
-                              {tagsLoading ? (
-                                <option>{t.loadingTags}</option>
-                              ) : tags.length === 0 ? (
-                                <option>{t.noTagsFound}</option>
-                              ) : (
-                                tags.map(t => (
-                                  <option key={t.name} value={t.name}>
-                                    {t.name}
-                                  </option>
-                                ))
-                              )}
-                            </select>
-                            <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-charcoal/50 pointer-events-none" />
-                          </div>
-                          
-                          <button 
-                            onClick={() => setCustomVersionActive(true)}
-                            className="text-[10px] text-charcoal/40 hover:text-charcoal hover:underline"
-                          >
-                            {t.customLabel}
-                          </button>
-                        </div>
-                      )}
-
-                      <button 
-                        onClick={handleFetchTagsManually}
-                        className="p-1 rounded-full hover:bg-charcoal/5" 
-                        title="Reload Tag Registry"
-                        disabled={tagsLoading}
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 text-charcoal/40 ${tagsLoading ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2 text-xs">
-                      <span className="text-charcoal/40 font-mono text-[9px] uppercase font-bold text-sky-950">{t.ageCheckedLabel}</span>
-                      <div className="flex border border-ui-border rounded-sm overflow-hidden bg-paper-block">
-                        {['1w', '1m', '3m'].map((tf) => (
-                          <button
-                            key={tf}
-                            type="button"
-                            onClick={() => setTimeframe(tf)}
-                            className={`px-3 py-1 font-mono transition-all text-[11px] font-extrabold ${timeframe === tf ? 'bg-btn-primary text-btn-primary-text' : 'text-charcoal hover:bg-charcoal/5'}`}
-                          >
-                            {tf.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-
-              </div>
+              {renderSearchPanel('landing')}
 
               {/* Popular Sandbox triggers below box */}
               <div className="space-y-4 pt-4">
@@ -732,87 +970,7 @@ export default function App() {
               className="w-full flex flex-col space-y-10 animate-fade-in"
               id="results-container"
             >
-              {/* Dynamic Compact Search Header Bar (Pushed slide area) */}
-              <div className="w-full max-w-4xl mx-auto p-6 md:p-8 bg-paper-block border border-ui-border rounded-sm shadow-search">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  
-                  {/* Repo Input row */}
-                  <div className="flex-1">
-                    <div className="flex gap-4 border-b border-search-line pb-2 items-center">
-                      <input
-                        type="text"
-                        placeholder={t.enterRepoPlaceholder}
-                        value={repoUrl}
-                        onChange={(e) => setRepoUrl(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && triggerAnalysis()}
-                        className="bg-transparent text-xl font-serif italic outline-none flex-1 text-charcoal font-bold focus:ring-0 px-0 placeholder:text-charcoal/45"
-                        id="active-search-input"
-                      />
-                      <button
-                        disabled={isLoading}
-                        onClick={() => triggerAnalysis()}
-                        className="bg-btn-primary text-btn-primary-text px-5 py-2 text-xs uppercase tracking-widest hover:opacity-90 font-extrabold transition-all disabled:opacity-40 shrink-0 rounded-sm cursor-pointer"
-                        id="active-search-btn"
-                      >
-                        {t.analyze}
-                      </button>
-                    </div>
-
-                    {/* Version Details line inline */}
-                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-xs">
-                      
-                      <button 
-                        onClick={() => setUseTimeframe(!useTimeframe)}
-                        className="text-[10px] text-accent-indigo font-bold tracking-tight hover:underline flex items-center space-x-1"
-                      >
-                        <span>{useTimeframe ? t.switchToSpecificTag : t.switchToTimeWindow}</span>
-                      </button>
-
-                      <div className="flex items-center space-x-2 text-[11px]">
-                        <span className="text-charcoal/40 font-mono text-[9px] uppercase font-bold">{t.stateBeingLogged}</span>
-                        
-                        {!useTimeframe ? (
-                          <div className="flex items-center space-x-2">
-                            <select
-                              value={currentVersion}
-                              onChange={(e) => {
-                                setCurrentVersion(e.target.value);
-                                triggerAnalysis(repoUrl, e.target.value);
-                              }}
-                              disabled={tagsLoading || tags.length === 0}
-                              className="appearance-none bg-paper-aside px-2 py-0.5 border border-ui-border rounded-sm text-xs font-mono font-bold outline-none cursor-pointer text-charcoal"
-                              id="active-version-select"
-                            >
-                              {tags.map(t => (
-                                <option key={t.name} value={t.name}>{t.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <span className="font-mono bg-charcoal/5 px-2 py-0.5 font-bold uppercase">{timeframe} {lang === 'zh' ? '跨度' : 'window'}</span>
-                        )}
-                        
-                        <span className="text-charcoal/30 font-mono">→</span>
-                        <span className="font-mono bg-charcoal text-paper-light px-2 py-0.5 font-bold rounded-sm text-[10px]">{t.latestDisplacement}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Verdict Seal Rotate-Badge */}
-                  {analysisResult && (
-                    <div className="hidden md:block">
-                      <div className="inline-block border border-charcoal p-3.5 rotate-2 rounded-sm bg-paper-light text-center min-w-[100px]">
-                        <p className="text-[11px] font-serif font-extrabold italic">{analysisResult.repoName.split('/').pop()}</p>
-                        <p className="text-xl font-bold font-serif my-0.5 text-charcoal">
-                          {getVerdictShort(analysisResult.verdict)}
-                        </p>
-                        <p className="text-[8px] uppercase tracking-wider opacity-40 font-mono">{t.verdictSealLabel}</p>
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              </div>
+              {renderSearchPanel('results')}
 
               {/* Dynamic Screen Content: Loader, Results, or Error */}
               <div className="w-full max-w-6xl mx-auto bg-transparent">
@@ -821,7 +979,8 @@ export default function App() {
                   <Loader 
                     repoName={repoUrl.split('/').pop() || "repository"} 
                     currentVersion={useTimeframe ? undefined : currentVersion}
-                    statusMessage={streamStatus || undefined}
+                    status={streamStatus || undefined}
+                    lang={lang}
                   />
                 ) : error ? (
                   
@@ -889,7 +1048,7 @@ export default function App() {
                         {/* Elegant typographic seal circle */}
                         <div className="w-36 h-36 border border-ui-border rounded-full flex flex-col items-center justify-center relative mb-4 bg-paper-block shadow-xs">
                           <div className="absolute inset-1.5 border border-dashed border-ui-border-light rounded-full" />
-                          <span className="text-5xl font-serif italic font-extrabold text-charcoal z-10">
+                          <span className="verdict-seal-word text-5xl italic font-extrabold text-charcoal z-10">
                             {getVerdictShort(analysisResult.verdict)}
                           </span>
                           <div className="absolute -bottom-1 text-[8px] bg-charcoal text-paper-light px-2 py-0.5 tracking-wider font-mono uppercase font-bold">
@@ -901,7 +1060,7 @@ export default function App() {
                           {getVerdictLabel(analysisResult.verdict)}
                         </h2>
                         
-                        <p className="text-xs leading-relaxed text-charcoal/70 font-extrabold uppercase tracking-widest max-w-xs border-y border-ui-border-light py-4 w-full">
+                        <p className="text-sm leading-relaxed text-charcoal/75 font-semibold max-w-xs border-y border-ui-border-light py-4 w-full">
                           {analysisResult.verdictReason || getVerdictSentence(analysisResult.verdict)}
                         </p>
 
@@ -916,17 +1075,31 @@ export default function App() {
                         <div className="space-y-2 text-xs">
                           <div className="flex justify-between">
                             <span className="text-charcoal/60">{t.repositoryTarget}</span>
-                            <span className="font-mono text-charcoal font-semibold break-all text-right max-w-[150px]">{analysisResult.repoName}</span>
+                            <a
+                              href={getRepoHref(analysisResult.repoName)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-mono text-charcoal font-semibold break-all text-right max-w-[300px] hover:text-accent-indigo hover:underline"
+                            >
+                              {analysisResult.repoName}
+                            </a>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-charcoal/60">{t.installedStatus}</span>
-                            <span className="font-mono text-charcoal font-bold ">{analysisResult.currentVersion}</span>
+                            {renderReleaseLink(analysisResult.currentVersion, "font-mono text-charcoal font-bold text-right max-w-[300px] break-all")}
                           </div>
                           <div className="flex justify-between">
                             <span className="text-charcoal/60">{t.registryLatest}</span>
-                            <span className="font-mono text-charcoal font-extrabold">{analysisResult.latestVersion}</span>
+                            {renderReleaseLink(analysisResult.latestVersion, "font-mono text-charcoal font-extrabold text-right max-w-[300px] break-all")}
                           </div>
                         </div>
+                      </div>
+
+                      <div className="pt-8 text-left border-t border-ui-border mt-8 w-full">
+                        <p className="text-[10px] uppercase tracking-widest text-charcoal/40 font-mono font-bold mb-3">
+                          {lang === 'zh' ? '偏好选择' : 'PREFERENCE PROFILE'}
+                        </p>
+                        <PreferenceSummaryList lang={lang} value={normalizePreferences(analysisResult.preferences)} />
                       </div>
 
                     </div>
@@ -940,10 +1113,19 @@ export default function App() {
                         <h3 className="text-xs uppercase tracking-[0.2em] font-extrabold text-charcoal/80 mb-4 border-b border-ui-border pb-2">
                           {t.coreEnhancements}
                         </h3>
-                        {analysisResult.coreHighlights && analysisResult.coreHighlights.length > 0 ? (
-                          <p className="font-serif text-lg leading-relaxed text-charcoal mb-4 italic font-medium">
-                            {analysisResult.coreHighlights.join(" ")}
-                          </p>
+                        {getUpgradeHighlights(analysisResult).length > 0 ? (
+                          <ul className="space-y-2.5 mb-4">
+                            {getUpgradeHighlights(analysisResult).map((highlight, idx) => (
+                              <li key={idx} className="flex items-start gap-3">
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-ui-border bg-paper-aside text-[10px] font-mono font-extrabold text-charcoal/60">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-sans text-[13px] leading-relaxed font-semibold text-charcoal">
+                                  {highlight}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
                         ) : (
                           <p className="font-serif text-lg leading-relaxed text-charcoal/40 mb-4 italic">
                             {t.noSignificantModifications}

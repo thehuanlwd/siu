@@ -3,6 +3,7 @@ import { readAnalysisCache, readReleaseCache, writeAnalysisCache, writeReleaseCa
 import { fetchGitHubReleases, fetchRepoProfile, releasesToTagList } from "./github";
 import { sha256Hex } from "./hash";
 import { parseRepo } from "./parseRepo";
+import { buildPreferenceCacheKey, normalizeUpgradePreferences } from "./preferences";
 import { officialReleasesOnly, resolveReleaseRange } from "./range";
 import { cleanReleaseNotes } from "./releaseNotes";
 import type {
@@ -83,8 +84,9 @@ export async function prepareAnalysis(request: AnalyzeRequestBody, env: RuntimeE
     };
   }
 
-  const promptVersion = env.PROMPT_VERSION || "prompt_v2";
+  const promptVersion = env.PROMPT_VERSION || "prompt_v5";
   const aiConfig = resolveAiConfig(request, env);
+  const preferences = normalizeUpgradePreferences(request.preferences);
   const repoProfile = await fetchRepoProfile(repo, env).catch(() => undefined);
   const cleanedReleases = cleanReleaseNotes(range.releasesToAnalyze);
   const releaseHash = await buildReleaseHash(range.releasesToAnalyze);
@@ -99,13 +101,14 @@ export async function prepareAnalysis(request: AnalyzeRequestBody, env: RuntimeE
     promptVersion,
     model: aiConfig.model,
     repoProfileHash,
+    preferenceKey: buildPreferenceCacheKey(preferences),
   });
 
   const cachedAnalysis = await readAnalysisCache(cacheKey, env);
 
   return {
     repo,
-    request: { ...request, lang },
+    request: { ...request, lang, preferences },
     releases: releaseResult.releases,
     staleReleases: releaseResult.stale,
     range,
@@ -187,6 +190,7 @@ async function buildAnalysisCacheKey(input: {
   promptVersion: string;
   model: string;
   repoProfileHash: string;
+  preferenceKey: string;
 }): Promise<string> {
   return sha256Hex(
     [
@@ -199,6 +203,7 @@ async function buildAnalysisCacheKey(input: {
       input.promptVersion,
       input.model,
       input.repoProfileHash,
+      input.preferenceKey,
     ].join("|")
   );
 }

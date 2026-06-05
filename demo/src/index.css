@@ -2,6 +2,8 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
+
   /* 基础背景色 */
   --bg-paper-light: #FAF9F6;
   --bg-paper-aside: #F5F4F0;
@@ -13,8 +15,8 @@
   --text-charcoal-rgb: 26, 26, 26; /* 用于 canvas opacity */
   
   /* 强调色与边框色 */
-  --accent-color: #4f46e5;
-  --accent-color-rgb: 79, 70, 229; /* 用于 canvas opacity */
+  --accent-color: #c4953a;
+  --accent-color-rgb: 196, 149, 58; /* 用于 canvas opacity */
   --border-color: rgba(26, 26, 26, 0.1);
   --border-color-light: rgba(26, 26, 26, 0.05);
 
@@ -32,6 +34,13 @@
   /* 搜索栏扩展：横线与阴影 */
   --border-search-line: #1A1A1A;
   --search-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  /* 表单控件 */
+  --form-control-bg: var(--bg-paper-block);
+  --form-control-text: var(--text-charcoal);
+  --form-control-border: var(--border-color);
+  --form-control-hover-bg: var(--bg-paper-aside);
+  --form-option-bg: var(--bg-paper-block);
 
   /* 状态颜色 (去绿化：成功用琥珀金) */
   --color-status-success-text: #854d0e;
@@ -56,6 +65,8 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
+
   /* 基础背景色：有层次的深色 */
   --bg-paper-light: #0D0D0C;   /* 极深炭黑底色 */
   --bg-paper-aside: #141413;   /* 辅助背景色 */
@@ -86,6 +97,13 @@
   /* 搜索栏扩展：横线与阴影 */
   --border-search-line: #D4B26F; /* 横线改为暗金 */
   --search-shadow: 0 20px 40px rgba(0, 0, 0, 0.95), 0 10px 20px rgba(0, 0, 0, 0.7); /* 极黑阴影，确保暗色下可见 */
+
+  /* 表单控件 */
+  --form-control-bg: var(--bg-paper-block);
+  --form-control-text: var(--text-charcoal);
+  --form-control-border: var(--border-color);
+  --form-control-hover-bg: var(--bg-paper-card);
+  --form-option-bg: var(--bg-paper-block);
 
   /* 状态颜色 (去绿化：成功用柔金色) */
   --color-status-success-text: #E5C158;
@@ -159,6 +177,64 @@ body {
   background-color: var(--bg-paper-light);
   color: var(--text-charcoal);
   font-family: var(--font-sans);
+}
+
+html[lang='zh'] .text-\[8px\],
+html[lang='zh'] .text-\[8\.5px\],
+html[lang='zh'] .text-\[9px\],
+html[lang='zh'] .text-\[10px\],
+html[lang='zh'] .text-\[10\.5px\],
+html[lang='zh'] .text-\[11px\],
+html[lang='zh'] .text-xs {
+  font-size: 12px;
+}
+
+.brand-subtitle {
+  font-size: 18px;
+  font-style: italic;
+  text-transform: none;
+}
+
+.verdict-seal-word {
+  font-family: Georgia, serif;
+}
+
+.preference-card-shell {
+  perspective: 1600px;
+}
+
+.preference-flip-card {
+  position: relative;
+  transform-style: preserve-3d;
+  height: 248px;
+}
+
+.preference-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.preference-card-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  overflow: hidden;
+}
+
+.theme-select {
+  background-color: var(--form-control-bg);
+  color: var(--form-control-text);
+  border-color: var(--form-control-border);
+}
+
+.theme-select:hover {
+  background-color: var(--form-control-hover-bg);
+}
+
+.theme-select option {
+  background-color: var(--form-option-bg);
+  color: var(--form-control-text);
 }
 
 /* Custom scrollbars */
