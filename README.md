@@ -212,6 +212,14 @@ Build output: dist
 demo/CLOUDFLARE_PAGES_DEPLOY.md
 ```
 
+## 社区支持
+
+<a href="https://linux.do/">
+  <img src="https://linux.do/logo-128.svg" alt="LINUX DO" width="42" />
+</a>
+
+感谢 [LINUX DO](https://linux.do/) 社区的大力支持。
+
 ## License
 
 MIT License. 完全开源，欢迎使用、修改、分发和二次创作。

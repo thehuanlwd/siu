@@ -1267,6 +1267,20 @@ export default function App() {
           <span className="text-[9px] uppercase tracking-widest opacity-50">MIT LICENSE</span>
         </div>
         <div className="flex gap-4 items-center">
+          <a
+            href="https://linux.do/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="感谢 LINUX DO 社区的大力支持"
+            className="text-[9px] uppercase tracking-widest text-footer-text/60 hover:text-footer-text flex items-center space-x-1.5 cursor-pointer transition-colors"
+          >
+            <img
+              src="https://linux.do/logo-128.svg"
+              alt=""
+              className="w-3.5 h-3.5 object-contain grayscale opacity-80"
+            />
+            <span>感谢 LINUX DO 社区的大力支持</span>
+          </a>
           <button
             onClick={() => setShowDevPortalModal(true)}
             className="text-[9px] uppercase tracking-widest text-footer-text hover:text-accent-indigo hover:underline flex items-center space-x-1.5 cursor-pointer"
