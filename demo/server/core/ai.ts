@@ -83,14 +83,15 @@ export async function callAiJson(input: {
     ...chatPayload({ ...input, stream: false }),
     model: config.model,
   };
+  const body = JSON.stringify(payload);
 
   logAiContext(input.env, {
     phase: "request",
     stream: false,
     apiUrl: `${config.apiUrl}/chat/completions`,
     model: config.model,
-    messages: payload.messages,
-    response_format: payload.response_format,
+    requestBody: payload,
+    bodyLength: body.length,
   });
 
   const response = await fetch(`${config.apiUrl}/chat/completions`, {
@@ -99,7 +100,7 @@ export async function callAiJson(input: {
       Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body,
   });
 
   if (!response.ok) {
@@ -138,14 +139,15 @@ export async function fetchAiStream(input: {
     ...chatPayload({ ...input, stream: true }),
     model: config.model,
   };
+  const body = JSON.stringify(payload);
 
   logAiContext(input.env, {
     phase: "request",
     stream: true,
     apiUrl: `${config.apiUrl}/chat/completions`,
     model: config.model,
-    messages: payload.messages,
-    response_format: payload.response_format,
+    requestBody: payload,
+    bodyLength: body.length,
   });
 
   const response = await fetch(`${config.apiUrl}/chat/completions`, {
@@ -154,7 +156,7 @@ export async function fetchAiStream(input: {
       Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body,
   });
 
   if (!response.ok || !response.body) {

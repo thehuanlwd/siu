@@ -128,7 +128,7 @@ interface CleanedReleaseNotes {
 Use the current SIU analysis prompt as the basis:
 
 ```txt
-docs/analysis-prompt-v5.md
+docs/analysis-prompt-v6.md
 ```
 
 When calling the LLM, include:
@@ -214,11 +214,13 @@ Example:
 
 ## Verdict Rules
 
-Use user preferences when deciding the final verdict:
+Use user preferences only when deciding the final verdict and verdict reason. Do not use preferences to filter the objective report lists:
 
 - `features`: new product capabilities and major workflow additions.
 - `ux`: visible usability, performance, stability, and interaction improvements.
 - `bugs`: bug fixes, vulnerability fixes, crash fixes, data-loss fixes, privacy fixes.
+
+The objective lists (`coreHighlights`, `criticalFixes`, `breakingChanges`, `newFeatures`, and `releaseBreakdown`) should be generated from Release Notes before applying preferences. If the user ignores bugs, still list meaningful bug, crash, security, data, privacy, or core-flow fixes in `criticalFixes`; ignore only means ordinary bugs should not by themselves push the verdict to `yes`.
 
 High-risk security, privacy, data loss, or core-flow availability fixes may override preferences.
 

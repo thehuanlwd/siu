@@ -1,4 +1,4 @@
-import { callAiJson, resolveAiConfig } from "./ai";
+import { callAiJson, logAiContext, resolveAiConfig } from "./ai";
 import { readAnalysisCache, readReleaseCache, writeAnalysisCache, writeReleaseCache } from "./cache";
 import { fetchGitHubReleases, fetchRepoProfile, releasesToTagList } from "./github";
 import { sha256Hex } from "./hash";
@@ -84,7 +84,7 @@ export async function prepareAnalysis(request: AnalyzeRequestBody, env: RuntimeE
     };
   }
 
-  const promptVersion = env.PROMPT_VERSION || "prompt_v5";
+  const promptVersion = env.PROMPT_VERSION || "prompt_v6";
   const aiConfig = resolveAiConfig(request, env);
   const preferences = normalizeUpgradePreferences(request.preferences);
   const repoProfile = await fetchRepoProfile(repo, env).catch(() => undefined);
@@ -126,6 +126,21 @@ export async function runAnalysis(request: AnalyzeRequestBody, env: RuntimeEnv):
   if ("status" in prepared) return prepared;
 
   if (prepared.cachedAnalysis) {
+    logAiContext(env, {
+      phase: "analysis_cache_hit",
+      stream: false,
+      cacheKey: prepared.cacheKey,
+      repoFullName: prepared.repo.fullName,
+      inputType: prepared.range.inputType,
+      inputValue: prepared.range.inputValue,
+      latestVersion: prepared.range.latestVersion,
+      releaseCount: prepared.range.releasesToAnalyze.length,
+      releaseHash: prepared.releaseHash,
+      promptVersion: prepared.promptVersion,
+      staleReleases: prepared.staleReleases,
+      note: "AI request was skipped because analysis cache returned a result.",
+    });
+
     return {
       status: "success",
       analysis: prepared.cachedAnalysis,

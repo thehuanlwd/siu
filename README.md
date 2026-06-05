@@ -151,7 +151,7 @@ SIU 目前还没有开放公共托管 API。
 文档：
 
 - [AI 智能体接入指南](docs/agent-integration.md)
-- [当前汇总分析提示词 v5](docs/analysis-prompt-v5.md)
+- [当前汇总分析提示词 v6](docs/analysis-prompt-v6.md)
 
 可以这样对 AI 工具说：
 

@@ -43,6 +43,21 @@ export const onRequestPost = async (context: PagesContext) => {
         }
 
         if (prepared.cachedAnalysis) {
+          logAiContext(context.env, {
+            phase: "analysis_cache_hit",
+            stream: true,
+            cacheKey: prepared.cacheKey,
+            repoFullName: prepared.repo.fullName,
+            inputType: prepared.range.inputType,
+            inputValue: prepared.range.inputValue,
+            latestVersion: prepared.range.latestVersion,
+            releaseCount: prepared.range.releasesToAnalyze.length,
+            releaseHash: prepared.releaseHash,
+            promptVersion: prepared.promptVersion,
+            staleReleases: prepared.staleReleases,
+            note: "AI request was skipped because analysis cache returned a result.",
+          });
+
           send({
             type: "status",
             stage: "cached",

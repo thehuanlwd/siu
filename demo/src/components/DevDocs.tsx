@@ -141,7 +141,7 @@ export default function DevDocs({ lang = 'en' }: DevDocsProps) {
                 <ExternalLink className="w-3.5 h-3.5 text-charcoal/45" />
               </a>
               <a
-                href="/docs/analysis-prompt-v5.md"
+                href="/docs/analysis-prompt-v6.md"
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center justify-between gap-3 rounded-sm border border-ui-border-light bg-paper-aside px-3 py-2.5 text-charcoal hover:bg-charcoal/5 transition"

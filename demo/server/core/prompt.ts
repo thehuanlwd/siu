@@ -82,7 +82,9 @@ export function buildSystemPrompt(lang: LanguageCode): string {
 4. 升级风险：破坏性变更、迁移成本、回退风险、兼容性风险。
 5. 更新内容与项目核心用途的相关性。
 
-最终 verdict 必须更多依据用户偏好。用户强烈关注的类别要显著提高权重；用户标记为不关注的类别只保留事实汇总，不应单独推动 yes。明确的高危安全、数据损坏、隐私泄露或核心流程不可用问题可以覆盖偏好。
+你必须把“客观事实汇总”和“主观升级评定”分成两步完成。
+第一步先基于 Release Notes 客观生成右侧报告列表：升级重点、漏洞修复、升级风险、其他功能与逐版本摘要。用户偏好不得影响这些事实列表的完整性。
+第二步再基于已经生成的事实列表和用户偏好，给出最终 verdict 与 verdictReason。用户强烈关注的类别要显著提高权重；用户标记为不关注的类别不应单独推动 yes。明确的高危安全、数据损坏、隐私泄露或核心流程不可用问题可以覆盖偏好。
 
 分析时必须先根据项目画像判断项目定位，并按定位调整权重：
 - 面向开发者、DevOps、SDK、框架、数据库、CLI、依赖库、基础设施的项目：更重视安全、bug、兼容性、性能、API 变更和迁移风险。
@@ -92,13 +94,16 @@ export function buildSystemPrompt(lang: LanguageCode): string {
 
 分析流程：
 1. 先在内部把有效变化归入 [新功能]、[体验优化]、[BUG]、[安全]、[崩溃]、[数据]、[稳定性]、[风险] 等类别。不要输出这个中间过程。
-2. coreHighlights 只放升级重点：优先选择与项目核心用途相关的 [新功能]、[体验优化]、[稳定性]。每条必须以结构化标签开头。
-3. criticalFixes 只放 BUG&漏洞：安全、崩溃、数据损坏、隐私泄露或严重 bug。每条必须以结构化标签开头。
-4. breakingChanges 只放升级风险：优先采信发布者明确写出的 breaking change、migration、deprecated、removed、compatibility、known issue。不要凭常识猜测风险。
+2. 先生成客观事实列表，不要参考用户偏好来删减条目。
+3. coreHighlights 只放升级重点：优先选择与项目核心用途相关的 [新功能]、[体验优化]、[稳定性]。每条必须以结构化标签开头。
+4. criticalFixes 只放 BUG&漏洞修复：安全、崩溃、数据问题、隐私问题、核心流程不可用、明显影响目标用户的关键 bug。每条必须以结构化标签开头。普通维护、测试修复、开发依赖修复不要放入。
+5. breakingChanges 只放升级风险：优先采信发布者明确写出的 breaking change、migration、deprecated、removed、compatibility、known issue。不要凭常识猜测风险。
+6. 最后才根据事实列表和用户偏好判断 verdict 与 verdictReason。
 
 不要仅仅因为某条变更是 feat 就推荐升级。请结合项目画像判断该变更是否服务于项目的核心用途。
 如果新功能明显偏离项目核心定位，请降低推荐强度。
-如果普通 bug、边缘 crash、测试修复、开发依赖修复、可选插件修复不影响目标用户核心使用路径，不要把它们说成高危，也不要单独因此给 yes。
+如果用户把 BUG修复 标记为“不关注”，仍然必须在 criticalFixes 中列出值得用户知道的 BUG、崩溃、安全、数据或核心流程修复；“不关注”只表示普通 BUG 不应单独推动最终 verdict 为 yes。
+如果普通 bug、边缘 crash、测试修复、开发依赖修复、可选插件修复不影响目标用户核心使用路径，不要放大为高危，也不要单独因此给 yes。
 只有满足以下至少一项时，BUG&漏洞才可以作为强烈建议升级的主要理由：
 - 发布者明确标记为 security、critical、urgent、hotfix、high severity、CVE 或强烈建议升级。
 - 普通用户默认或常见使用路径可触发，且可能造成远程代码执行、认证绕过、权限提升、账号/Token 泄露、越权访问、存储型 XSS 等安全后果。
@@ -127,7 +132,7 @@ verdict 判断标准：
   "verdictReason": "一句接地气的升级建议。可以提到版本数量和更新性质，例如：作者三个月来疯狂更新了 28 个版本，但大多数都是修复调优；如果你只追求新功能，那就没必要急着升。",
   "coreHighlights": ["3-5 条升级重点。每条必须以 [新功能]、[体验优化] 或 [稳定性] 开头；不要放纯 BUG/漏洞修复，除非它直接表现为用户可感知的稳定性收益"],
   "breakingChanges": ["升级风险。只写发布者明确提醒的破坏性变更、迁移要求、兼容性风险、已知问题，或材料中非常明显的重大改变；不要猜测"],
-  "criticalFixes": ["漏洞修复。每条必须以 [安全]、[BUG]、[崩溃] 或 [数据] 开头；只把满足高危规则的内容说成高危或必须升级"],
+  "criticalFixes": ["客观列出值得用户知道的 BUG&漏洞修复。每条必须以 [安全]、[BUG]、[崩溃] 或 [数据] 开头；即使用户不关注 BUG，也不要漏掉重要修复；只把满足高危规则的内容说成高危或必须升级"],
   "newFeatures": ["其他较小但仍值得一提的新功能、优化或体验改进。每条以 [新功能]、[体验优化] 或 [稳定性] 开头"],
   "preferences": { "features": "ignore" | "neutral" | "strong", "ux": "ignore" | "neutral" | "strong", "bugs": "ignore" | "neutral" | "strong" },
   "versionCount": 参与分析的 Release 数量,
@@ -153,7 +158,9 @@ Focus on:
 4. Upgrade risks: breaking changes, migration cost, rollback risks, and compatibility risks.
 5. Whether each change is relevant to the repository's core purpose.
 
-The final verdict must be driven more by the user's preferences. Strongly focused categories should carry much more weight; ignored categories should still be summarized as facts, but should not by themselves push the verdict to yes. Clearly high-risk security, data loss, privacy leak, or core-flow availability issues may override preferences.
+You must split the work into two steps: objective factual summary first, subjective upgrade verdict second.
+Step 1: objectively generate the right-side report lists from Release Notes: upgrade highlights, bug/vulnerability fixes, upgrade risks, other features, and per-release breakdown. User preferences must not reduce or hide factual list items.
+Step 2: use the factual lists plus user preferences to decide verdict and verdictReason. Strongly focused categories should carry much more weight; ignored categories should not by themselves push the verdict to yes. Clearly high-risk security, data loss, privacy leak, or core-flow availability issues may override preferences.
 
 First infer the repository positioning from the profile, then adjust weighting:
 - Developer tools, DevOps, SDKs, frameworks, databases, CLIs, libraries, and infrastructure: prioritize security, bugs, compatibility, performance, API changes, and migration risk.
@@ -163,12 +170,15 @@ First infer the repository positioning from the profile, then adjust weighting:
 
 Analysis flow:
 1. Internally classify meaningful changes as [Feature], [UX], [Bug], [Security], [Crash], [Data], [Stability], [Risk], etc. Do not output this intermediate process.
-2. coreHighlights should contain upgrade highlights only: prefer [Feature], [UX], and [Stability] items that matter to the repository's core purpose. Every item must start with a structured tag.
-3. criticalFixes should contain bugs & vulnerabilities only: security, crashes, data corruption, privacy leaks, or severe bugs. Every item must start with a structured tag.
-4. breakingChanges should contain upgrade risks only: prefer publisher-stated breaking changes, migrations, deprecations, removals, compatibility notes, and known issues. Do not infer risks from general knowledge.
+2. Generate objective factual lists first. Do not use user preferences to delete or hide items from these lists.
+3. coreHighlights should contain upgrade highlights only: prefer [Feature], [UX], and [Stability] items that matter to the repository's core purpose. Every item must start with a structured tag.
+4. criticalFixes should contain bug and vulnerability fixes only: security, crashes, data issues, privacy issues, core-flow availability fixes, and important bugs that clearly affect target users. Every item must start with a structured tag. Do not include routine maintenance, test fixes, or dev-dependency fixes.
+5. breakingChanges should contain upgrade risks only: prefer publisher-stated breaking changes, migrations, deprecations, removals, compatibility notes, and known issues. Do not infer risks from general knowledge.
+6. Decide verdict and verdictReason only after the factual lists are formed.
 
 Do not recommend upgrading merely because a change is labeled as a feature. Use the repository profile to judge whether a change matters to the project's core purpose.
 If a new feature is peripheral to the project purpose, lower the recommendation strength.
+If the user marks bug fixes as ignore, still list meaningful bug, crash, security, data, privacy, or core-flow fixes in criticalFixes; ignore only means ordinary bugs should not by themselves push the final verdict to yes.
 If an ordinary bug, edge-case crash, test fix, dev-dependency fix, or optional-plugin fix does not affect the target user's core usage path, do not call it high-risk and do not give a yes verdict solely because of it.
 Only let bugs & vulnerabilities become a primary reason for a strong upgrade recommendation when at least one of these is true:
 - The publisher explicitly labels it security, critical, urgent, hotfix, high severity, CVE, or strongly recommends upgrading.
@@ -198,7 +208,7 @@ Return only a valid JSON object. Do not output Markdown or surrounding explanati
   "verdictReason": "One practical sentence explaining whether the upgrade is worthwhile. Mention release count and update nature when helpful.",
   "coreHighlights": ["3-5 upgrade highlights. Each item must start with [Feature], [UX], or [Stability]; do not include pure bug/vulnerability fixes unless they directly appear as user-visible stability gains"],
   "breakingChanges": ["Upgrade risks. Only include publisher-stated breaking changes, migration requirements, compatibility risks, known issues, or very obvious major changes from the material; do not speculate"],
-  "criticalFixes": ["Bug and vulnerability fixes. Each item must start with [Security], [Bug], [Crash], or [Data]; only call an item high-risk or mandatory when it meets the high-risk rules"],
+  "criticalFixes": ["Objectively list bug and vulnerability fixes worth telling users about. Each item must start with [Security], [Bug], [Crash], or [Data]; do not omit important fixes just because the user ignores bugs; only call an item high-risk or mandatory when it meets the high-risk rules"],
   "newFeatures": ["Other smaller features, polish, or optimizations. Each item must start with [Feature], [UX], or [Stability]"],
   "preferences": { "features": "ignore" | "neutral" | "strong", "ux": "ignore" | "neutral" | "strong", "bugs": "ignore" | "neutral" | "strong" },
   "versionCount": number of releases analyzed,
@@ -236,7 +246,7 @@ export function buildUserPrompt(input: {
 
 ${repoProfilePayload}
 
-用户偏好如下。最终 verdict 要更多依据这些偏好；偏好为“不关注”的类别仍可汇总，但不要单独作为强推升级理由：
+用户偏好如下。偏好只用于最终 verdict 和 verdictReason，不得用于过滤升级重点、漏洞修复、升级风险、逐版本摘要等事实列表。偏好为“不关注”的类别仍要客观汇总，只是不要单独作为强推升级理由：
 
 ${preferencePayload}
 
@@ -254,7 +264,7 @@ Repository profile. First understand the repository's core purpose, then judge w
 
 ${repoProfilePayload}
 
-User preferences. The final verdict should be driven more by these preferences; ignored categories may still be summarized, but should not alone become a strong upgrade reason:
+User preferences. Preferences only affect verdict and verdictReason; do not use them to filter upgrade highlights, bug/vulnerability fixes, upgrade risks, or per-release breakdown. Ignored categories must still be objectively summarized, but should not alone become a strong upgrade reason:
 
 ${preferencePayload}
 
