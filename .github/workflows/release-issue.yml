@@ -1,0 +1,34 @@
+name: Create Issue on Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  issues: write
+
+jobs:
+  create-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release Info Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const release = context.payload.release;
+            const tagName = release.tag_name;
+            const htmlUrl = release.html_url;
+            const body = release.body || '无详细更新说明。';
+
+            const title = `[Release] 项目已发布新版本 ${tagName}`;
+            const issueBody = `## 🚀 项目已发布新版本 [${tagName}](${htmlUrl})\n\n### 更新内容：\n\n${body}\n\n---\n*此 Issue 由 GitHub Actions 自动创建以同步 Release 更新日志。*`;
+
+            const response = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: issueBody,
+              labels: ['release', 'documentation']
+            });
+
+            console.log(`Successfully created issue #${response.data.number}`);

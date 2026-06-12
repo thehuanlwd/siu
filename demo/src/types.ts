@@ -19,6 +19,14 @@ export interface UpgradePreferences {
   bugs: UpgradePreferenceLevel;
 }
 
+export interface LocMetric {
+  language: string;
+  files: number;
+  lines: number;
+  blanks: number;
+  comments: number;
+}
+
 export interface UpgradeAnalysis {
   repoName: string;
   currentVersion: string;
@@ -37,6 +45,19 @@ export interface UpgradeAnalysis {
     date: string;
     highlights: string[];
   }>;
+  locData?: LocMetric[];
+}
+
+export type ExplainSection = 'coreHighlights' | 'criticalFixes' | 'breakingChanges' | 'newFeatures' | 'releaseBreakdown';
+export type ExplanationDepth = 'release_context' | 'docs' | 'source_needed';
+
+export interface ExplanationResult {
+  plainMeaning: string;
+  affectedUsers: string;
+  action: string;
+  evidence: string;
+  depth: ExplanationDepth;
+  needsSourceReview: boolean;
 }
 
 export interface HistoryItem {

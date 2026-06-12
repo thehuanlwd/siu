@@ -97,6 +97,16 @@ export interface TranslationSchema {
   noSevereSecurity: string;
   breakingChangesTitle: string;
   painlessMigration: string;
+  codeMetricsTitle: string;
+  codeMetricsLoading: string;
+  codeMetricsError: string;
+  totalLines: string;
+  totalFiles: string;
+  commentRatio: string;
+  blankRatio: string;
+  retryBtn: string;
+  detailedMetrics: string;
+  hideMetrics: string;
 }
 
 export const translations: Record<'en' | 'zh', TranslationSchema> = {
@@ -198,7 +208,17 @@ export const translations: Record<'en' | 'zh', TranslationSchema> = {
     criticalResolutions: "Critical Resolutions & Vetted Fixes",
     noSevereSecurity: "No severe security CVE patches or crashes detected. Current footprint is stable.",
     breakingChangesTitle: "Breaking Changes & High-Risk Modifiers",
-    painlessMigration: "Painless migration roadmap. No destructive regression risks cataloged."
+    painlessMigration: "Painless migration roadmap. No destructive regression risks cataloged.",
+    codeMetricsTitle: "Code Metrics",
+    codeMetricsLoading: "Retrieving repository code statistics...",
+    codeMetricsError: "Code statistics unavailable (repo too big or rate limited)",
+    totalLines: "Total Lines",
+    totalFiles: "Total Files",
+    commentRatio: "Comment Ratio",
+    blankRatio: "Blank Ratio",
+    retryBtn: "Retry",
+    detailedMetrics: "Show detailed data",
+    hideMetrics: "Hide detailed data"
   },
   zh: {
     ledger: "审计历史",
@@ -298,6 +318,16 @@ export const translations: Record<'en' | 'zh', TranslationSchema> = {
     criticalResolutions: "漏洞修复",
     noSevereSecurity: "未检测到严重的安全漏洞（CVE）或崩溃修复，当前版本表现稳定可靠。",
     breakingChangesTitle: "升级风险",
-    painlessMigration: "暂时没看到明显的兼容性雷区，正常升级风险不高。"
+    painlessMigration: "暂时没看到明显的兼容性雷区，正常升级风险不高。",
+    codeMetricsTitle: "代码结构统计",
+    codeMetricsLoading: "正在解析代码结构...",
+    codeMetricsError: "暂无代码统计数据 (项目体积超标或请求频繁)",
+    totalLines: "总代码行",
+    totalFiles: "文件总数",
+    commentRatio: "注释占比",
+    blankRatio: "空行占比",
+    retryBtn: "重试",
+    detailedMetrics: "展开详细数据",
+    hideMetrics: "收起详细数据"
   }
 };

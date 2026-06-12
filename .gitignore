@@ -1,6 +1,6 @@
 .ps_history/
 **/.ps_history/
-
+.superpowers/
 node_modules/
 **/node_modules/
 

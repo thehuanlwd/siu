@@ -21,7 +21,8 @@ import {
   Sliders,
   Settings,
   Sun,
-  Moon
+  Moon,
+  HelpCircle
 } from 'lucide-react';
 import Loader from './components/Loader';
 import type { LoaderStatus } from './components/Loader';
@@ -34,7 +35,7 @@ import PreferenceControl, {
   normalizePreferences,
 } from './components/PreferenceControl';
 import VersionLatticeBg from './components/VersionLatticeBg';
-import { UpgradeAnalysis, HistoryItem, VerdictType, UpgradePreferences } from './types';
+import { UpgradeAnalysis, HistoryItem, VerdictType, UpgradePreferences, ExplainSection, ExplanationResult, LocMetric } from './types';
 import { translations } from './locales';
 
 type ThemeMode = 'light' | 'dark';
@@ -44,6 +45,11 @@ type AnalysisTriggerOptions = {
   currentVersion?: string;
   timeframe?: string;
   recentReleases?: number;
+};
+type ExplainItemState = {
+  status: 'loading' | 'success' | 'error';
+  explanation?: ExplanationResult;
+  error?: string;
 };
 
 const PREFERENCES_STORAGE_KEY = 'siu_upgrade_preferences';
@@ -77,6 +83,20 @@ const getStoredPreferences = (): UpgradePreferences => {
     return DEFAULT_UPGRADE_PREFERENCES;
   }
 };
+
+function parseGithubRepo(url: string): { owner: string; repo: string } | null {
+  try {
+    const cleanUrl = url.trim().replace(/\.git$/, '');
+    const regex = /(?:github\.com[:/])([^/]+)\/([^/]+)/;
+    const match = cleanUrl.match(regex);
+    if (match) {
+      return { owner: match[1], repo: match[2] };
+    }
+  } catch (e) {
+    console.error("Parse github repo error:", e);
+  }
+  return null;
+}
 
 export default function App() {
   // Theme state
@@ -169,6 +189,15 @@ export default function App() {
     () => localStorage.getItem(PREFERENCES_CONFIGURED_KEY) === 'true'
   );
   const [preferencesFlipped, setPreferencesFlipped] = useState(false);
+  const [expandedExplanationKey, setExpandedExplanationKey] = useState<string | null>(null);
+  const [explanationStates, setExplanationStates] = useState<Record<string, ExplainItemState>>({});
+
+  // Codetabs Loc Metrics states
+  const [locData, setLocData] = useState<LocMetric[] | null>(null);
+  const [locLoading, setLocLoading] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
+  const [locExpanded, setLocExpanded] = useState(false);
+  const currentAnalyzingRepoRef = useRef<string | null>(null);
 
   // History State (Persisted in localStorage)
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -317,6 +346,85 @@ export default function App() {
     fetchTagsOfRepo(repoUrl, true);
   };
 
+  const fetchLocMetrics = async (url: string) => {
+    const repoInfo = parseGithubRepo(url);
+    if (!repoInfo) {
+      setLocData(null);
+      setLocError("Invalid GitHub URL");
+      return;
+    }
+    const repoPath = `${repoInfo.owner}/${repoInfo.repo}`;
+    currentAnalyzingRepoRef.current = repoPath;
+
+    // 优先从本地历史记录中拉取缓存，防止 429 限流
+    const cacheKey = repoPath.toLowerCase();
+    const cachedItem = history.find(
+      (h) => h.repoName.toLowerCase() === cacheKey && h.analysis?.locData && h.analysis.locData.length > 0
+    );
+    if (cachedItem && cachedItem.analysis.locData) {
+      console.log(`[Frontend] 从本地审计历史加载代码统计缓存: ${repoPath}`);
+      setLocData(cachedItem.analysis.locData);
+      setLocLoading(false);
+      setLocError(null);
+      return;
+    }
+
+    setLocLoading(true);
+    setLocError(null);
+    setLocData(null);
+
+    try {
+      const resp = await fetch(`https://api.codetabs.com/v1/loc?github=${repoInfo.owner}/${repoInfo.repo}`);
+      if (!resp.ok) {
+        if (resp.status === 429) {
+          throw new Error("rate_limit");
+        }
+        throw new Error("failed");
+      }
+      const data = await resp.json();
+      if (data && data.Error) {
+        throw new Error(data.Error); // 捕获项目过大等 Codetabs 自身错误
+      }
+      if (Array.isArray(data)) {
+        if (currentAnalyzingRepoRef.current === repoPath) {
+          setLocData(data);
+          
+          // 若此时 AI 报告已展现，则同步合并 locData 入 analysisResult 以驱动 UI
+          setAnalysisResult((prev) => {
+            if (prev && prev.repoName.toLowerCase() === cacheKey) {
+              return { ...prev, locData: data };
+            }
+            return prev;
+          });
+
+          // 同步补充到历史记录项中，持久化到 localStorage
+          setHistory((prev) =>
+            prev.map((item) => {
+              if (item.repoName.toLowerCase() === cacheKey) {
+                return {
+                  ...item,
+                  analysis: { ...item.analysis, locData: data }
+                };
+              }
+              return item;
+            })
+          );
+        }
+      } else {
+        throw new Error("invalid_response");
+      }
+    } catch (err: any) {
+      console.error("[Frontend] 获取代码统计失败:", err);
+      if (currentAnalyzingRepoRef.current === repoPath) {
+        setLocError(err.message || "failed");
+      }
+    } finally {
+      if (currentAnalyzingRepoRef.current === repoPath) {
+        setLocLoading(false);
+      }
+    }
+  };
+
   const handleAnalysisResponse = (data: any) => {
     if (data.status === 'up_to_date') {
       setUpToDateStatus({
@@ -328,9 +436,14 @@ export default function App() {
     } else if (data.status === 'requires_version_resolution') {
       throw new Error(data.message || (lang === 'zh' ? '请选择一个正式发布版本后再分析。' : 'Choose an official release version before analyzing.'));
     } else if (data.status === 'success' && data.analysis) {
+      // 合并静默请求到的 locData
+      const currentRepoPath = data.analysis.repoName.toLowerCase();
+      const matchingLocData = locData && currentAnalyzingRepoRef.current?.toLowerCase() === currentRepoPath ? locData : undefined;
+
       const normalizedAnalysis: UpgradeAnalysis = {
         ...data.analysis,
         preferences: normalizePreferences(data.analysis.preferences || upgradePreferences),
+        locData: data.analysis.locData || matchingLocData
       };
 
       setAnalysisResult(normalizedAnalysis);
@@ -346,7 +459,7 @@ export default function App() {
       };
 
       setHistory(prev => {
-        const filtered = prev.filter(h => h.repoName !== newHistoryItem.repoName);
+        const filtered = prev.filter(h => h.repoName.toLowerCase() !== newHistoryItem.repoName.toLowerCase());
         return [newHistoryItem, ...filtered].slice(0, 30);
       });
     } else {
@@ -371,7 +484,6 @@ export default function App() {
 
     handleAnalysisResponse(data);
   };
-
   const triggerAnalysis = async (options: AnalysisTriggerOptions = {}) => {
     const finalRepo = (options.repoUrl || repoUrl).trim();
     if (!finalRepo) {
@@ -380,11 +492,17 @@ export default function App() {
       return;
     }
 
+    // 静默并行调用 Loc 代码结构统计
+    fetchLocMetrics(finalRepo);
+    setLocExpanded(false);
+
     setIsLoading(true);
     setHasSearched(true);
     setError(null);
     setUpToDateStatus(null);
     setAnalysisResult(null);
+    setExpandedExplanationKey(null);
+    setExplanationStates({});
     setStreamStatus({
       stage: 'init',
       message: lang === 'zh' ? 'SIU 初始化成功...' : 'SIU initialized...',
@@ -490,10 +608,22 @@ export default function App() {
     setCurrentVersion(item.currentVersion);
     setAnalysisResult(normalizedAnalysis);
     setUpgradePreferences(normalizedAnalysis.preferences);
+    setExpandedExplanationKey(null);
+    setExplanationStates({});
     setUpToDateStatus(null);
     setError(null);
     setHasSearched(true);
     setShowHistoryDrawer(false);
+
+    // 加载缓存好的 Loc 统计数据并还原当前库追踪
+    setLocData(normalizedAnalysis.locData || null);
+    setLocLoading(false);
+    setLocError(null);
+    setLocExpanded(false);
+    const repoInfo = parseGithubRepo(`https://github.com/${item.repoName}`);
+    if (repoInfo) {
+      currentAnalyzingRepoRef.current = `${repoInfo.owner}/${repoInfo.repo}`;
+    }
   };
 
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
@@ -594,6 +724,7 @@ export default function App() {
     setAnalysisResult(null);
     setUpToDateStatus(null);
     setError(null);
+    setExpandedExplanationKey(null);
   };
 
   const getRepoHref = (repoName: string) => `https://github.com/${repoName}`;
@@ -619,6 +750,406 @@ export default function App() {
       >
         {version}
       </a>
+    );
+  };
+
+  const getExplanationKey = (section: ExplainSection, itemText: string, itemIndex: number, releaseTag?: string) => {
+    return `${section}:${releaseTag || 'summary'}:${itemIndex}:${itemText}`;
+  };
+
+  const handleToggleExplanation = async (
+    section: ExplainSection,
+    itemText: string,
+    itemIndex: number,
+    releaseTag?: string
+  ) => {
+    if (!analysisResult) return;
+
+    const key = getExplanationKey(section, itemText, itemIndex, releaseTag);
+    if (expandedExplanationKey === key) {
+      setExpandedExplanationKey(null);
+      return;
+    }
+
+    setExpandedExplanationKey(key);
+    if (explanationStates[key]?.status === 'success' || explanationStates[key]?.status === 'loading') return;
+
+    setExplanationStates((prev) => ({
+      ...prev,
+      [key]: { status: 'loading' },
+    }));
+
+    try {
+      const resp = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl: `https://github.com/${analysisResult.repoName}`,
+          repoName: analysisResult.repoName,
+          currentVersion: useTimeframe ? undefined : analysisResult.currentVersion,
+          timeframe: useTimeframe ? timeframe : undefined,
+          section,
+          itemText,
+          itemIndex,
+          releaseTag,
+          customApiUrl: customApiUrl || undefined,
+          customApiKey: customApiKey || undefined,
+          customModel: customModel.trim() || undefined,
+          lang,
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.status !== 'success' || !data.explanation) {
+        throw new Error(data.error || (lang === 'zh' ? '解释失败。' : 'Explanation failed.'));
+      }
+
+      setExplanationStates((prev) => ({
+        ...prev,
+        [key]: { status: 'success', explanation: data.explanation },
+      }));
+    } catch (err: any) {
+      setExplanationStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
+          error: err.message || (lang === 'zh' ? '这条暂时解释失败，可以稍后再试。' : 'This item could not be explained yet.'),
+        },
+      }));
+    }
+  };
+
+  const renderExplainButton = (section: ExplainSection, itemText: string, itemIndex: number, releaseTag?: string) => {
+    const key = getExplanationKey(section, itemText, itemIndex, releaseTag);
+    const isOpen = expandedExplanationKey === key;
+    return (
+      <button
+        type="button"
+        onClick={() => handleToggleExplanation(section, itemText, itemIndex, releaseTag)}
+        className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border transition-all focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-accent-indigo/40 ${
+          isOpen
+            ? 'border-accent-indigo bg-accent-indigo text-paper-light opacity-100'
+            : 'border-ui-border bg-paper-block text-charcoal/35 opacity-0 group-hover:opacity-100 hover:border-accent-indigo hover:text-accent-indigo'
+        }`}
+        title={lang === 'zh' ? '解释这一条' : 'Explain this item'}
+        aria-label={lang === 'zh' ? '解释这一条' : 'Explain this item'}
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+    );
+  };
+
+  const renderExplanationPanel = (section: ExplainSection, itemText: string, itemIndex: number, releaseTag?: string) => {
+    const key = getExplanationKey(section, itemText, itemIndex, releaseTag);
+    if (expandedExplanationKey !== key) return null;
+
+    const state = explanationStates[key];
+    if (!state || state.status === 'loading') {
+      return (
+        <div className="ml-8 mt-2 border-l border-ui-border-light pl-4">
+          <div className="h-[2px] w-full overflow-hidden bg-ui-border-light">
+            <motion.div
+              className="h-full w-1/3 bg-charcoal"
+              animate={{ x: ['-100%', '320%'] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
+            />
+          </div>
+          <p className="mt-2 text-[10px] font-mono uppercase tracking-wider text-charcoal/45">
+            {lang === 'zh' ? '正在反查出处...' : 'Tracing release evidence...'}
+          </p>
+        </div>
+      );
+    }
+
+    if (state.status === 'error') {
+      return (
+        <div className="ml-8 mt-2 border-l border-status-error-border bg-status-error-bg/35 px-4 py-3 text-xs text-status-error-text">
+          {state.error || (lang === 'zh' ? '这条暂时解释失败，可以稍后再试。' : 'This explanation failed. Try again later.')}
+        </div>
+      );
+    }
+
+    const explanation = state.explanation;
+    if (!explanation) return null;
+
+    const rows = [
+      [lang === 'zh' ? '这是什么意思' : 'Meaning', explanation.plainMeaning],
+      [lang === 'zh' ? '影响谁' : 'Affected', explanation.affectedUsers],
+      [lang === 'zh' ? '要不要管' : 'Action', explanation.action],
+      [lang === 'zh' ? '依据' : 'Evidence', explanation.evidence],
+    ];
+
+    return (
+      <div className="ml-8 mt-2 border-l border-ui-border-light bg-paper-aside/70 px-4 py-3 text-xs text-charcoal">
+        <div className="space-y-2">
+          {rows.map(([label, value]) => (
+            <div key={label} className="grid grid-cols-[78px_minmax(0,1fr)] items-start gap-3">
+              <span className="pt-[2px] text-right font-mono text-[9px] uppercase tracking-wider text-charcoal/40">{label}</span>
+              <span className="min-w-0 leading-relaxed text-charcoal/80">{value}</span>
+            </div>
+          ))}
+        </div>
+        {explanation.needsSourceReview && (
+          <p className="mt-3 border-t border-ui-border-light pt-2 text-[10px] font-mono uppercase tracking-wider text-charcoal/40">
+            {lang === 'zh' ? '仍需源码确认，默认不继续消耗上下文。' : 'Source review may be needed; skipped by default.'}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const renderCodeMetricsSection = () => {
+    if (!analysisResult) return null;
+
+    const languageColors: Record<string, string> = {
+      typescript: '#3178c6',
+      javascript: '#f1e05a',
+      css: '#563d7c',
+      html: '#e34c26',
+      python: '#3572A5',
+      go: '#00ADD8',
+      rust: '#dea584',
+      java: '#b07219',
+      ruby: '#701516',
+      php: '#4F5D95',
+      c: '#555555',
+      'c++': '#f34b7d',
+      'c#': '#178600',
+      shell: '#89e051',
+      swift: '#F05138',
+      vue: '#41B883',
+    };
+
+    const getLanguageColor = (lang: string) => {
+      const lower = lang.toLowerCase();
+      if (languageColors[lower]) return languageColors[lower];
+      let hash = 0;
+      for (let i = 0; i < lower.length; i++) {
+        hash = lower.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const h = Math.abs(hash) % 360;
+      return `hsl(${h}, 55%, 60%)`;
+    };
+
+    if (locLoading) {
+      return (
+        <div className="relative pl-6 pt-6 border-t border-ui-border mt-8">
+          <h3 className="text-xs uppercase tracking-[0.2em] font-extrabold text-charcoal/80 mb-3">
+            {t.codeMetricsTitle}
+          </h3>
+          <div className="flex items-center space-x-2.5 text-xs text-charcoal/40 font-mono">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-charcoal/30" />
+            <span>{t.codeMetricsLoading}</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (locError) {
+      const repoUrlToRetry = `https://github.com/${analysisResult.repoName}`;
+      return (
+        <div className="relative pl-6 pt-6 border-t border-ui-border mt-8">
+          <h3 className="text-xs uppercase tracking-[0.2em] font-extrabold text-charcoal/80 mb-3">
+            {t.codeMetricsTitle}
+          </h3>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-charcoal/40 font-mono leading-relaxed">
+              {t.codeMetricsError}
+            </span>
+            <button
+              onClick={() => fetchLocMetrics(repoUrlToRetry)}
+              className="text-[10px] uppercase font-bold tracking-wider text-accent-indigo hover:underline flex items-center space-x-1 cursor-pointer bg-charcoal/5 px-2 py-0.5 rounded-sm border-none outline-none"
+            >
+              <span>{t.retryBtn}</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const metrics = analysisResult.locData || locData;
+    if (!metrics || metrics.length === 0) {
+      const repoUrlToRetry = `https://github.com/${analysisResult.repoName}`;
+      return (
+        <div className="relative pl-6 pt-6 border-t border-ui-border mt-8">
+          <h3 className="text-xs uppercase tracking-[0.2em] font-extrabold text-charcoal/80 mb-3">
+            {t.codeMetricsTitle}
+          </h3>
+          <div className="flex items-center space-x-3 text-xs">
+            <span className="text-charcoal/40 font-mono">{t.codeMetricsError}</span>
+            <button
+              onClick={() => fetchLocMetrics(repoUrlToRetry)}
+              className="text-[10px] uppercase font-bold tracking-wider text-accent-indigo hover:underline cursor-pointer bg-charcoal/5 px-2 py-0.5 rounded-sm border-none outline-none"
+            >
+              {t.retryBtn}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const dataRows = metrics.filter(m => m.language !== 'Total');
+    const totalRow = metrics.find(m => m.language === 'Total') || {
+      lines: dataRows.reduce((sum, r) => sum + r.lines, 0),
+      files: dataRows.reduce((sum, r) => sum + r.files, 0),
+      blanks: dataRows.reduce((sum, r) => sum + r.blanks, 0),
+      comments: dataRows.reduce((sum, r) => sum + r.comments, 0),
+    };
+
+    const overallLines = totalRow.lines || 1;
+    const commentRatioVal = ((totalRow.comments / overallLines) * 100).toFixed(1);
+    const blankRatioVal = ((totalRow.blanks / overallLines) * 100).toFixed(1);
+
+    const languageShares = dataRows
+      .map(r => ({
+        ...r,
+        share: r.lines / overallLines,
+        color: getLanguageColor(r.language),
+      }))
+      .sort((a, b) => b.lines - a.lines);
+
+    let displayShares = languageShares.slice(0, 5);
+    const otherLines = languageShares.slice(5).reduce((sum, r) => sum + r.lines, 0);
+    const otherFiles = languageShares.slice(5).reduce((sum, r) => sum + r.files, 0);
+    if (otherLines > 0) {
+      displayShares.push({
+        language: lang === 'zh' ? '其他语言' : 'Others',
+        files: otherFiles,
+        lines: otherLines,
+        blanks: 0,
+        comments: 0,
+        share: otherLines / overallLines,
+        color: '#d1d5db',
+      });
+    }
+
+    return (
+      <div className="relative pl-6 pt-6 border-t border-ui-border mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs uppercase tracking-[0.2em] font-extrabold text-charcoal/80">
+            {t.codeMetricsTitle}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setLocExpanded(!locExpanded)}
+            className="text-[10px] uppercase tracking-wider font-mono font-extrabold text-charcoal/45 hover:text-charcoal cursor-pointer flex items-center space-x-1 bg-transparent border-none outline-none"
+          >
+            <span>{locExpanded ? t.hideMetrics : t.detailedMetrics}</span>
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${locExpanded ? 'rotate-90' : ''}`} />
+          </button>
+        </div>
+
+        <div className="h-1.5 w-full flex rounded-full overflow-hidden bg-charcoal/5 mb-3 shadow-inner">
+          {displayShares.map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                width: `${(item.share * 100).toFixed(1)}%`,
+                backgroundColor: item.color,
+              }}
+              title={`${item.language}: ${(item.share * 100).toFixed(1)}% (${item.lines.toLocaleString()} lines)`}
+            />
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-charcoal/50">
+          {displayShares.slice(0, 4).map((item, idx) => (
+            <div key={idx} className="flex items-center space-x-1.5">
+              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: item.color }} />
+              <span className="font-bold text-charcoal/70">{item.language}</span>
+              <span>{(item.share * 100).toFixed(0)}%</span>
+            </div>
+          ))}
+          {languageShares.length > 4 && (
+            <span className="text-charcoal/35 font-normal text-[10px]">
+              {lang === 'zh'
+                ? `共 ${languageShares.length} 种语言`
+                : `${languageShares.length} languages total`}
+            </span>
+          )}
+        </div>
+
+        <AnimatePresence initial={false}>
+          {locExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="pt-6 space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-3.5 bg-paper-aside rounded-sm border border-ui-border-light flex flex-col justify-between">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-charcoal/40 mb-1">{t.totalLines}</span>
+                    <span className="font-mono text-lg font-bold text-charcoal">
+                      {totalRow.lines.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-charcoal/40 font-mono mt-0.5">
+                      {t.totalFiles}: {totalRow.files.toLocaleString()}
+                    </span>
+                  </div>
+                  
+                  <div className="p-3.5 bg-paper-aside rounded-sm border border-ui-border-light flex flex-col justify-between">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-charcoal/40 mb-1">{t.commentRatio}</span>
+                    <span className="font-mono text-lg font-bold text-charcoal">
+                      {commentRatioVal}%
+                    </span>
+                    <span className="text-[10px] text-charcoal/40 font-mono mt-0.5">
+                      {totalRow.comments.toLocaleString()} lines
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 bg-paper-aside rounded-sm border border-ui-border-light flex flex-col justify-between">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-charcoal/40 mb-1">{t.blankRatio}</span>
+                    <span className="font-mono text-lg font-bold text-charcoal">
+                      {blankRatioVal}%
+                    </span>
+                    <span className="text-[10px] text-charcoal/40 font-mono mt-0.5">
+                      {totalRow.blanks.toLocaleString()} lines
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border border-ui-border-light rounded-xs overflow-hidden">
+                  <table className="w-full text-left font-mono text-[11px] border-collapse bg-paper-light">
+                    <thead>
+                      <tr className="bg-paper-aside border-b border-ui-border-light text-charcoal/45 uppercase font-bold text-[9px] tracking-wider">
+                        <th className="p-2.5 pl-4">Language</th>
+                        <th className="p-2.5 text-right">Files</th>
+                        <th className="p-2.5 text-right">Lines</th>
+                        <th className="p-2.5 text-right">Blanks</th>
+                        <th className="p-2.5 text-right pr-4">Comments</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ui-border-light/40">
+                      {languageShares.map((row) => (
+                        <tr key={row.language} className="hover:bg-charcoal/[0.01]">
+                          <td className="p-2.5 pl-4 font-bold text-charcoal/80 flex items-center space-x-2">
+                            <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0" style={{ backgroundColor: row.color }} />
+                            <span>{row.language}</span>
+                          </td>
+                          <td className="p-2.5 text-right text-charcoal/60">{row.files.toLocaleString()}</td>
+                          <td className="p-2.5 text-right text-charcoal/80 font-bold">{row.lines.toLocaleString()}</td>
+                          <td className="p-2.5 text-right text-charcoal/50">{row.blanks.toLocaleString()}</td>
+                          <td className="p-2.5 text-right text-charcoal/50 pr-4">{row.comments.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-paper-aside/40 font-bold border-t border-ui-border-light">
+                        <td className="p-2.5 pl-4 text-charcoal">Total</td>
+                        <td className="p-2.5 text-right text-charcoal">{totalRow.files.toLocaleString()}</td>
+                        <td className="p-2.5 text-right text-charcoal">{totalRow.lines.toLocaleString()}</td>
+                        <td className="p-2.5 text-right text-charcoal/70">{totalRow.blanks.toLocaleString()}</td>
+                        <td className="p-2.5 text-right text-charcoal/70 pr-4">{totalRow.comments.toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     );
   };
 
@@ -1114,15 +1645,19 @@ export default function App() {
                           {t.coreEnhancements}
                         </h3>
                         {getUpgradeHighlights(analysisResult).length > 0 ? (
-                          <ul className="space-y-2.5 mb-4">
+                          <ul className="space-y-3 mb-4">
                             {getUpgradeHighlights(analysisResult).map((highlight, idx) => (
-                              <li key={idx} className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-ui-border bg-paper-aside text-[10px] font-mono font-extrabold text-charcoal/60">
-                                  {idx + 1}
-                                </span>
-                                <span className="font-sans text-[13px] leading-relaxed font-semibold text-charcoal">
-                                  {highlight}
-                                </span>
+                              <li key={idx} className="group">
+                                <div className="flex items-start gap-3">
+                                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-ui-border bg-paper-aside text-[10px] font-mono font-extrabold text-charcoal/60">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="font-sans text-[13px] leading-relaxed font-semibold text-charcoal">
+                                    {highlight}
+                                  </span>
+                                  {renderExplainButton('coreHighlights', highlight, idx)}
+                                </div>
+                                {renderExplanationPanel('coreHighlights', highlight, idx)}
                               </li>
                             ))}
                           </ul>
@@ -1142,9 +1677,13 @@ export default function App() {
                         <ul className="space-y-2.5">
                           {analysisResult.criticalFixes && analysisResult.criticalFixes.length > 0 ? (
                             analysisResult.criticalFixes.map((fix, idx) => (
-                              <li key={idx} className="flex items-start">
-                                <span className="mr-3 text-status-error-text/60 select-none font-sans font-bold">—</span>
-                                <span className="font-sans text-[13px] leading-relaxed font-semibold text-charcoal">{fix}</span>
+                              <li key={idx} className="group">
+                                <div className="flex items-start">
+                                  <span className="mr-3 text-status-error-text/60 select-none font-sans font-bold">—</span>
+                                  <span className="font-sans text-[13px] leading-relaxed font-semibold text-charcoal flex-1">{fix}</span>
+                                  {renderExplainButton('criticalFixes', fix, idx)}
+                                </div>
+                                {renderExplanationPanel('criticalFixes', fix, idx)}
                               </li>
                             ))
                           ) : (
@@ -1162,9 +1701,13 @@ export default function App() {
                         <ul className="space-y-2.5">
                           {analysisResult.breakingChanges && analysisResult.breakingChanges.length > 0 ? (
                             analysisResult.breakingChanges.map((change, idx) => (
-                              <li key={idx} className="flex items-start text-xs font-mono text-charcoal">
-                                <span className="mr-3 text-status-warning-text font-bold select-none">•</span>
-                                <span className="leading-relaxed bg-status-warning-bg/50 rounded-xs p-2 border border-status-warning-border flex-1">{change}</span>
+                              <li key={idx} className="group text-xs font-mono text-charcoal">
+                                <div className="flex items-start">
+                                  <span className="mr-3 text-status-warning-text font-bold select-none">•</span>
+                                  <span className="leading-relaxed bg-status-warning-bg/50 rounded-xs p-2 border border-status-warning-border flex-1">{change}</span>
+                                  <span className="ml-2">{renderExplainButton('breakingChanges', change, idx)}</span>
+                                </div>
+                                {renderExplanationPanel('breakingChanges', change, idx)}
                               </li>
                             ))
                           ) : (
@@ -1226,9 +1769,13 @@ export default function App() {
                                           <ul className="space-y-1.5 text-charcoal/80">
                                             {rel.highlights && rel.highlights.length > 0 ? (
                                               rel.highlights.map((hil, hidx) => (
-                                                <li key={hidx} className="leading-relaxed flex items-start">
-                                                  <span className="mr-2 text-charcoal/30 select-none">—</span>
-                                                  <span>{hil}</span>
+                                                <li key={hidx} className="group">
+                                                  <div className="leading-relaxed flex items-start">
+                                                    <span className="mr-2 text-charcoal/30 select-none">—</span>
+                                                    <span className="flex-1">{hil}</span>
+                                                    {renderExplainButton('releaseBreakdown', hil, hidx, rel.tag)}
+                                                  </div>
+                                                  {renderExplanationPanel('releaseBreakdown', hil, hidx, rel.tag)}
                                                 </li>
                                               ))
                                             ) : (
@@ -1246,6 +1793,8 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Segment 05 - 代码行数统计折叠卡片 */}
+                      {renderCodeMetricsSection()}
                     </div>
 
                   </div>

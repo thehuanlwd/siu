@@ -46,6 +46,12 @@ export interface RepoProfile {
   readmeExcerpt?: string;
 }
 
+export interface RepoDocumentation {
+  path: string;
+  title: string;
+  content: string;
+}
+
 export interface CleanedReleaseChange {
   type: string;
   scope?: string;
@@ -70,6 +76,33 @@ export interface AnalyzeRequestBody {
   lang?: LanguageCode;
   preferences?: Partial<UpgradePreferences>;
 }
+
+export type ExplainSection = "coreHighlights" | "criticalFixes" | "breakingChanges" | "newFeatures" | "releaseBreakdown";
+export type ExplanationDepth = "release_context" | "docs" | "source_needed";
+
+export interface ExplainRequestBody extends AnalyzeRequestBody {
+  repoName?: string;
+  section: ExplainSection;
+  itemText: string;
+  itemIndex?: number;
+  releaseTag?: string;
+}
+
+export interface ExplanationResult {
+  plainMeaning: string;
+  affectedUsers: string;
+  action: string;
+  evidence: string;
+  depth: ExplanationDepth;
+  needsSourceReview: boolean;
+}
+
+export interface ExplainSuccessResponse {
+  status: "success";
+  explanation: ExplanationResult;
+}
+
+export type ExplainResponse = ExplainSuccessResponse;
 
 export interface UpgradeAnalysis {
   repoName: string;
